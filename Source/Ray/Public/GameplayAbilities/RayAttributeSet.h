@@ -31,14 +31,6 @@ public:
 	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_MaxHealth, Category = "Attributes")
 	FGameplayAttributeData MaxHealth;
 	ATTRIBUTE_ACCESSORS(URayAttributeSet, MaxHealth)
-
-	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_BindResistance, Category = "Attributes")
-	FGameplayAttributeData BindResistance;
-	ATTRIBUTE_ACCESSORS(URayAttributeSet, BindResistance)
-
-	UPROPERTY(BlueprintReadOnly, ReplicatedUsing = OnRep_MaxBindResistance, Category = "Attributes")
-	FGameplayAttributeData MaxBindResistance;
-	ATTRIBUTE_ACCESSORS(URayAttributeSet, MaxBindResistance)
 	
 	UFUNCTION(BlueprintNativeEvent, Category = "Attributes")
 	void BP_PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue);
@@ -51,10 +43,4 @@ protected:
 
 	UFUNCTION()
 	void OnRep_MaxHealth(const FGameplayAttributeData& OldMaxHealth);
-
-	UFUNCTION()
-	void OnRep_BindResistance(const FGameplayAttributeData& OldBindResistance);
-
-	UFUNCTION()
-	void OnRep_MaxBindResistance(const FGameplayAttributeData& OldMaxBindResistance);
 };

@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "AbilitySystemComponent.h"
+#include "RayAttributeInitData.h"
 #include "RayAbilitySystemComponent.generated.h"
 
 /**
@@ -18,4 +19,7 @@ public:
 	
 	UFUNCTION(BlueprintCallable, Category = "AbilitySystem")
 	void InitAttributeSet(TSubclassOf<UAttributeSet> AttributeSetClass);
+	
+	UFUNCTION(BlueprintCallable, Category = "AbilitySystem")
+	void SetDefaultAttributeValues(const TSubclassOf<UGameplayEffect> InitGameplayEffectClass, const URayAttributeInitData* AttributeInitData, const float Level);
 };

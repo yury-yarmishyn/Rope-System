@@ -1,4 +1,4 @@
-#include "GameplayAbilities/RayAbilitySystemComponent.h"
+#include "RayAbilitySystemComponent.h"
 
 void URayAbilitySystemComponent::InitAbilitySystem(AActor* InOwnerActor, AActor* InAvatarActor)
 {

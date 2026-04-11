@@ -8,24 +8,26 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2dea0756-89ad-4b16-a6af-321e29acfa71" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/Source/Ray/Private/GameplayAbilities/RayAttributeInitData.cpp" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/Private/RopeSystem/RayRopeAttachable.cpp" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/Private/RopeSystem/RayRopeComponent.cpp" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/Public/GameplayAbilities/RayAttributeInitData.h" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/Public/RopeSystem/RayRopeAttachable.h" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/Public/RopeSystem/RayRopeComponent.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Content/Ray/AS_AttributeSet.uasset" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Content/Ray/Characters/BP_CharacterBase.uasset" beforeDir="false" afterPath="$PROJECT_DIR$/Content/Ray/Characters/BP_CharacterBase.uasset" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_FirstPersonGameMode.uasset" beforeDir="false" />
+      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeComponent.cpp" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeComponent.h" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeInterface.cpp" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeInterface.h" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeTypes.cpp" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeTypes.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/.idea.Ray.dir/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/.idea.Ray.dir/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_Player.uasset" beforeDir="false" afterPath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_Player.uasset" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_PlayerController.uasset" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_PlayerGameMode.uasset" beforeDir="false" afterPath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_PlayerGameMode.uasset" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_PlayerState.uasset" beforeDir="false" afterPath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_PlayerState.uasset" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Content/Ray/Levels/Lvl_FirstPerson.umap" beforeDir="false" afterPath="$PROJECT_DIR$/Content/Ray/Levels/Lvl_FirstPerson.umap" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/Private/GameplayAbilities/RayAbilitySystemComponent.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/Private/GameplayAbilities/RayAbilitySystemComponent.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/Private/GameplayAbilities/RayAttributeSet.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/Private/GameplayAbilities/RayAttributeSet.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/Public/GameplayAbilities/RayAbilitySystemComponent.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/Public/GameplayAbilities/RayAbilitySystemComponent.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/Public/GameplayAbilities/RayAttributeSet.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/Public/GameplayAbilities/RayAttributeSet.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Content/Ray/NewBlueprint.uasset" beforeDir="false" afterPath="$PROJECT_DIR$/Content/Ray/NewBlueprint.uasset" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Content/__ExternalActors__/Ray/Levels/Lvl_FirstPerson/9/1T/XBHGIJQIFDQAT6K6PRYDXL.uasset" beforeDir="false" afterPath="$PROJECT_DIR$/Content/__ExternalActors__/Ray/Levels/Lvl_FirstPerson/9/1T/XBHGIJQIFDQAT6K6PRYDXL.uasset" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/Private/GameplayAbilities/RayAbilitySystemComponent.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/GameplayAbilities/RayAbilitySystemComponent.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/Private/GameplayAbilities/RayAttributeInitData.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/GameplayAbilities/RayAttributeInitData.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/Private/GameplayAbilities/RayAttributeSet.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/GameplayAbilities/RayAttributeSet.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/Private/RopeSystem/RayRopeAttachable.cpp" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/Private/RopeSystem/RayRopeComponent.cpp" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/Public/GameplayAbilities/RayAbilitySystemComponent.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/GameplayAbilities/RayAbilitySystemComponent.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/Public/GameplayAbilities/RayAttributeInitData.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/GameplayAbilities/RayAttributeInitData.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/Public/GameplayAbilities/RayAttributeSet.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/GameplayAbilities/RayAttributeSet.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/Public/RopeSystem/RayRopeAttachable.h" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/Public/RopeSystem/RayRopeComponent.h" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -41,7 +43,7 @@
     <option name="firstShow" value="false" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="10718" />
+    <option name="cachedIndexableFilesCount" value="48171" />
   </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -59,15 +61,15 @@
   }
 }</component>
   <component name="HighlightingSettingsPerFile">
-    <setting file="file://$PROJECT_DIR$/Source/Ray/Private/RopeSystem/RayRopeAttachable.cpp" root0="FORCE_HIGHLIGHTING" />
-    <setting file="file://$PROJECT_DIR$/Source/Ray/Private/RopeSystem/RayRopeComponent.cpp" root0="FORCE_HIGHLIGHTING" />
-    <setting file="file://$PROJECT_DIR$/Source/Ray/Public/RopeSystem/RayRopeAttachable.h" root0="FORCE_HIGHLIGHTING" />
-    <setting file="file://$PROJECT_DIR$/Source/Ray/Public/RopeSystem/RayRopeComponent.h" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/../../UE_5.7/Engine/Source/Runtime/Core/Public/Math/MathFwd.h" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/../../UE_5.7/Engine/Source/Runtime/Core/Public/Math/Plane.h" root0="FORCE_HIGHLIGHTING" />
+    <setting file="file://$PROJECT_DIR$/../../UE_5.7/Engine/Source/Runtime/Engine/Classes/Components/SceneComponent.h" root0="FORCE_HIGHLIGHTING" />
   </component>
   <component name="McpProjectServerCommands">
     <commands />
     <urls />
   </component>
+  <component name="MetaFilesCheckinStateConfiguration" checkMetaFiles="true" />
   <component name="ProjectColorInfo">{
   &quot;customColor&quot;: &quot;&quot;,
   &quot;associatedIndex&quot;: 0
@@ -77,24 +79,24 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "RunOnceActivity.MCP Project settings loaded": "true",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
-    "Uproject.Ray.executor": "Debug",
-    "git-widget-placeholder": "main",
-    "node.js.detected.package.eslint": "true",
-    "node.js.detected.package.tslint": "true",
-    "node.js.selected.package.eslint": "(autodetect)",
-    "node.js.selected.package.tslint": "(autodetect)",
-    "nodejs_package_manager_path": "npm",
-    "settings.editor.selected.configurable": "preferences.pluginManager",
-    "vue.rearranger.settings.migration": "true"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;Uproject.Ray.executor&quot;: &quot;Run&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;SolutionBuilderGeneralOptionsPage&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
-}]]></component>
+}</component>
   <component name="RunManager">
     <configuration name="Ray" type="Uproject" factoryName="rider.uproject">
       <configuration_1 setup="1">
@@ -182,12 +184,28 @@
       <workItem from="1773908824963" duration="7749000" />
       <workItem from="1774032489031" duration="4816000" />
       <workItem from="1774080351658" duration="19540000" />
+      <workItem from="1774166369881" duration="9010000" />
+      <workItem from="1774245732621" duration="7180000" />
+      <workItem from="1774275173212" duration="3868000" />
+      <workItem from="1774284778012" duration="13680000" />
+      <workItem from="1774334320247" duration="6025000" />
+      <workItem from="1774444520666" duration="1191000" />
+      <workItem from="1774592108145" duration="16769000" />
+      <workItem from="1774675091589" duration="2834000" />
+      <workItem from="1774689740278" duration="2625000" />
+      <workItem from="1774707488370" duration="11522000" />
+      <workItem from="1774937886471" duration="18870000" />
+      <workItem from="1775027749247" duration="746000" />
+      <workItem from="1775047036185" duration="6380000" />
+      <workItem from="1775126509629" duration="8883000" />
+      <workItem from="1775798571669" duration="22435000" />
     </task>
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="UnityCheckinConfiguration" checkUnsavedScenes="true" />
   <component name="UnityProjectConfiguration" hasMinimizedUI="false" />
   <component name="UnrealLogPanelSettings">
     <option name="showMessages" value="false" />

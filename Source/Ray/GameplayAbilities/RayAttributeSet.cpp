@@ -1,4 +1,4 @@
-#include "GameplayAbilities/RayAttributeSet.h"
+#include "RayAttributeSet.h"
 
 #include "GameplayEffectExtension.h"
 #include "Net/UnrealNetwork.h"

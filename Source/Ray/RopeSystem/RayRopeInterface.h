@@ -15,9 +15,9 @@ class RAY_API IRayRopeInterface
 	GENERATED_BODY()
 
 public:
-	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Rope")
+	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Rope|Getters")
 	USceneComponent* GetAnchorComponent() const;
 	
-	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Rope")
+	UFUNCTION(BlueprintCallable, BlueprintNativeEvent, Category = "Rope|Getters")
 	FName GetAnchorSocketName() const;
 };

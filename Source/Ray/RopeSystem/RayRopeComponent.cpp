@@ -56,9 +56,14 @@ void URayRopeComponent::SolveRope()
 	
 	for (int SegmentIndex = 0; SegmentIndex < NewSegments.Num(); ++SegmentIndex)
 	{
-		MovePass(SegmentIndex, NewSegments);
-		WrapPass(SegmentIndex, NewSegments);
-		UnwrapPass(SegmentIndex, NewSegments);
+		if (NewSegments[SegmentIndex].Nodes.Num() < 2)
+		{
+			continue;
+		}
+		
+		MoveSegment(SegmentIndex, NewSegments);
+		WrapSegment(SegmentIndex, NewSegments);
+		UnwrapSegment(SegmentIndex, NewSegments);
 	}
 	
 	SetSegments(NewSegments);
@@ -82,19 +87,10 @@ void URayRopeComponent::MoveNode(int32 NodeIndex, FRayRopeSegment& NewSegment, b
  * The move function shifts the points to the desired position until they stop changing.
  * 
  */
-void URayRopeComponent::MovePass(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments)
+void URayRopeComponent::MoveSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments)
 {
-	if (!NewSegments.IsValidIndex(SegmentIndex))
-	{
-		return;
-	}
-
 	FRayRopeSegment& NewSegment = NewSegments[SegmentIndex];
 	const int32 NodeCount = NewSegment.Nodes.Num();
-	if (NodeCount < 2)
-	{
-		return;
-	}
 	
 	// Updating Anchors first.
 	FRayRopeNode& FirstAnchor = NewSegment.Nodes[0];
@@ -144,12 +140,12 @@ void URayRopeComponent::MovePass(int32 SegmentIndex, TArray<FRayRopeSegment>& Ne
 	}
 }
 
-void URayRopeComponent::WrapPass(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments)
+void URayRopeComponent::WrapSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments)
 {
-	// WIP
+	
 }
 
-void URayRopeComponent::UnwrapPass(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments)
+void URayRopeComponent::UnwrapSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments)
 {
 	// WIP
 }

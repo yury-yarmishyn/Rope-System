@@ -22,7 +22,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
 	float WrapSolverEpsilon = 1.f;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults", meta = (ClampMin = "1"))
 	int32 MoveSolverIterations = 2;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults", meta = (ClampMin = "1"))
@@ -67,9 +67,9 @@ protected:
 	
 	void SolveRope();
 	
-	void MovePass(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments);
-	void WrapPass(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments);
-	void UnwrapPass(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments);
+	void MoveSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments);
+	void WrapSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments);
+	void UnwrapSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments);
 	
 	void MoveNode(int32 NodeIndex, FRayRopeSegment& NewSegment, bool& bAnyNodeChanged) const;
 

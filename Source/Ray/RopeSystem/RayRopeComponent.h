@@ -17,7 +17,10 @@ public:
 	// Defaults
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
-	int32 WrapSolverIterations = 2;
+	int32 MaxWrapIterations = 2;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
+	int32 MaxBinarySearchIteration = 4;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
 	float WrapSolverEpsilon = 1.f;
@@ -26,7 +29,7 @@ public:
 	int32 MoveSolverIterations = 2;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults", meta = (ClampMin = "1"))
-	int32 MovePassMaxIterations = 8;
+	int32 MaxMoveIterations = 8;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
 	float MoveSolverEpsilon = 1.f;
@@ -38,7 +41,7 @@ public:
 	
 	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
 	FOnSegmentsSet OnSegmentsSet;
-	
+
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Dynamic")
 	TArray<FRayRopeSegment> Segments;
@@ -78,4 +81,17 @@ protected:
 	FVector GetNodeDesiredWorldLocation(int32 NodeIndex, const FRayRopeSegment& NewSegment) const;
 	FVector GetAnchorWorldLocation(const FRayRopeNode& Node) const;
 	FVector FindEffectiveRedirection(int32 NodeIndex, const FRayRopeSegment& NewSegment) const;
+	
+	FHitResult TraceLine(const FRayRopeNode& StartNode, const FRayRopeNode& EndNode) const;
+	void BinarySearchCollisionBoundary(
+		FRayRopeNode& ValidLineStart, 
+		FRayRopeNode& ValidLineEnd,
+		FRayRopeNode& InvalidLineStart,
+		FRayRopeNode& InvalidLineEnd) const;
+	FRayRopeNode FindRedirectNode(
+		const FRayRopeNode& LastValidLineStart,
+		const FRayRopeNode& LastValidLineEnd,
+		const FHitResult& PlaneSource) const;
+	void ApplyNewNodes(TMap<int32, FRayRopeSegment>& NodesToAdd, FRayRopeSegment& InSegment) const;
+	void SplitSegmentOnAnchors(int32 NodeIndex, const FRayRopeSegment& NewSegment);
 };

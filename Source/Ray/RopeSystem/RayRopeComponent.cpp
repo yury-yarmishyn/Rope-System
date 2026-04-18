@@ -423,9 +423,6 @@ void URayRopeComponent::BinarySearchCollisionBoundary(
 	FRayRopeNode& InvalidLineStart,
 	FRayRopeNode& InvalidLineEnd) const
 {
-	FRayRopeNode MidLineStart;
-	FRayRopeNode MidLineEnd;
-	
 	for (int32 i = 0; i < MaxBinarySearchIteration; ++i)
 	{
 		const bool bStartCloseEnough = 
@@ -438,6 +435,9 @@ void URayRopeComponent::BinarySearchCollisionBoundary(
 		{
 			return;
 		}
+		
+		FRayRopeNode MidLineStart = ValidLineStart;
+		FRayRopeNode MidLineEnd = ValidLineEnd;
 		
 		MidLineStart.WorldLocation =
 			(ValidLineStart.WorldLocation + InvalidLineStart.WorldLocation) / 2;

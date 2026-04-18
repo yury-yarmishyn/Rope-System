@@ -70,28 +70,55 @@ protected:
 	
 	void SolveRope();
 	
-	void MoveSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments);
-	void WrapSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments);
-	void UnwrapSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments);
-	
-	void MoveNode(int32 NodeIndex, FRayRopeSegment& NewSegment, bool& bAnyNodeChanged) const;
+	void SyncAnchors(TArray<FRayRopeSegment>& NewSegments) const;
 
-	// Helpers - must not return invalid values, only fallbacks.
+	void MoveSegment(
+		int32 SegmentIndex, 
+		TArray<FRayRopeSegment>& NewSegments) const;
 	
-	FVector GetNodeDesiredWorldLocation(int32 NodeIndex, const FRayRopeSegment& NewSegment) const;
-	FVector GetAnchorWorldLocation(const FRayRopeNode& Node) const;
-	FVector FindEffectiveRedirection(int32 NodeIndex, const FRayRopeSegment& NewSegment) const;
+	void WrapSegment(
+		int32 SegmentIndex, 
+		TArray<FRayRopeSegment>& NewSegments,
+		const TArray<FRayRopeSegment>& PrevSegments) const;
 	
-	FHitResult TraceLine(const FRayRopeNode& StartNode, const FRayRopeNode& EndNode) const;
+	void RelaxSegment(
+		int32 SegmentIndex, 
+		TArray<FRayRopeSegment>& NewSegments) const;
+	
+	void SplitSegmentOnAnchors(
+		int32 SegmentIndex,
+		TArray<FRayRopeSegment>& NewSegments) const;
+	
+	void MoveNode(
+		int32 NodeIndex, 
+		FRayRopeSegment& NewSegment, 
+		bool& bAnyNodeChanged) const;
+	
 	void BinarySearchCollisionBoundary(
 		FRayRopeNode& ValidLineStart, 
 		FRayRopeNode& ValidLineEnd,
 		FRayRopeNode& InvalidLineStart,
 		FRayRopeNode& InvalidLineEnd) const;
-	FRayRopeNode FindRedirectNode(
+	
+	void FindRedirectNode(
 		const FRayRopeNode& LastValidLineStart,
 		const FRayRopeNode& LastValidLineEnd,
-		const FHitResult& PlaneSource) const;
-	void ApplyNewNodes(TMap<int32, FRayRopeSegment>& NodesToAdd, FRayRopeSegment& InSegment) const;
-	void SplitSegmentOnAnchors(int32 NodeIndex, const FRayRopeSegment& NewSegment);
+		const FHitResult& SurfaceHit,
+		FRayRopeNode& RedirectNode) const;
+	
+	void AddNodesToSegment(
+		const TMap<int32, FRayRopeSegment>& NodesToAdd,
+		FRayRopeSegment& NewSegment) const;
+	
+	// Helpers - must not return invalid values, only fallbacks.
+	
+	FVector GetNodeDesiredWorldLocation(int32 NodeIndex, const FRayRopeSegment& InSegment) const;
+	FVector GetAnchorWorldLocation(const FRayRopeNode& Node) const;
+	FVector FindEffectiveRedirection(int32 NodeIndex, const FRayRopeSegment& InSegment) const;
+	FHitResult TraceNodes(const FRayRopeNode& StartNode, const FRayRopeNode& EndNode) const;
+	bool TryCreateWrapNode(
+		int32 NodeIndex,
+		const FRayRopeSegment& CurrentSegment,
+		const FRayRopeSegment& ReferenceSegment,
+		FRayRopeNode& OutNode) const;
 };

@@ -218,9 +218,53 @@ void URayRopeComponent::WrapSegment(
 	AddNodesToSegment(NodesToAdd, CurrentSegment);
 }
 
-void URayRopeComponent::RelaxSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments) const
+void URayRopeComponent::RelaxSegment(
+	int32 SegmentIndex,
+	TArray<FRayRopeSegment>& NewSegments) const
 {
-	// WIP
+	if (!NewSegments.IsValidIndex(SegmentIndex))
+	{
+		return;
+	}
+
+	FRayRopeSegment& Segment = NewSegments[SegmentIndex];
+	if (Segment.Nodes.Num() < 3)
+	{
+		return;
+	}
+
+	int32 NodeIndex = 1;
+
+	while (NodeIndex < Segment.Nodes.Num() - 1)
+	{
+		if (!Segment.Nodes.IsValidIndex(NodeIndex - 1) ||
+			!Segment.Nodes.IsValidIndex(NodeIndex) ||
+			!Segment.Nodes.IsValidIndex(NodeIndex + 1))
+		{
+			break;
+		}
+
+		const FRayRopeNode& CurrentNode = Segment.Nodes[NodeIndex];
+		if (CurrentNode.NodeType == ENodeType::Anchor)
+		{
+			++NodeIndex;
+			continue;
+		}
+
+		const FRayRopeNode& PrevNode = Segment.Nodes[NodeIndex - 1];
+		const FRayRopeNode& NextNode = Segment.Nodes[NodeIndex + 1];
+
+		const bool bCanRemoveByTrace = CanRelaxNodeByTrace(Segment, NodeIndex);
+		const bool bCanRemoveByCollinear = AreSegmentsCollinear(PrevNode, CurrentNode, NextNode);
+
+		if (bCanRemoveByTrace || bCanRemoveByCollinear)
+		{
+			Segment.Nodes.RemoveAt(NodeIndex);
+			continue;
+		}
+
+		++NodeIndex;
+	}
 }
 
 void URayRopeComponent::MoveNode(int32 NodeIndex, FRayRopeSegment& NewSegment, bool& bAnyNodeChanged) const
@@ -438,6 +482,109 @@ bool URayRopeComponent::TryCreateWrapNode(
 	);
 
 	return true;
+}
+
+bool URayRopeComponent::CanRelaxNodeByTrace(
+	const FRayRopeSegment& Segment,
+	int32 NodeIndex) const
+{
+	if (!Segment.Nodes.IsValidIndex(NodeIndex - 1) ||
+		!Segment.Nodes.IsValidIndex(NodeIndex) ||
+		!Segment.Nodes.IsValidIndex(NodeIndex + 1))
+	{
+		return false;
+	}
+
+	const FRayRopeNode& PrevNode = Segment.Nodes[NodeIndex - 1];
+	const FRayRopeNode& CurrentNode = Segment.Nodes[NodeIndex];
+	const FRayRopeNode& NextNode = Segment.Nodes[NodeIndex + 1];
+
+	const FVector TraceStart = CurrentNode.WorldLocation;
+	const FVector ClosestPoint = GetClosestPointOnLine(
+		TraceStart,
+		PrevNode.WorldLocation,
+		NextNode.WorldLocation);
+
+	if (TraceStart.Equals(ClosestPoint, RelaxSolverEpsilon))
+	{
+		return true;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(RayRopeRelaxTrace), true);
+	QueryParams.bReturnPhysicalMaterial = false;
+
+	if (AActor* Owner = GetOwner())
+	{
+		QueryParams.AddIgnoredActor(Owner);
+	}
+
+	for (const FRayRopeNode& Node : Segment.Nodes)
+	{
+		if (Node.NodeType == ENodeType::Anchor && IsValid(Node.AnchorActor))
+		{
+			QueryParams.AddIgnoredActor(Node.AnchorActor);
+		}
+	}
+
+	FHitResult SurfaceHit;
+	World->LineTraceSingleByChannel(
+		SurfaceHit,
+		TraceStart,
+		ClosestPoint,
+		ECC_Visibility,
+		QueryParams
+	);
+
+	if (SurfaceHit.bBlockingHit)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool URayRopeComponent::AreSegmentsCollinear(
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode) const
+{
+	const FVector FirstDirection = CurrentNode.WorldLocation - PrevNode.WorldLocation;
+	const FVector SecondDirection = NextNode.WorldLocation - CurrentNode.WorldLocation;
+
+	if (FirstDirection.IsNearlyZero(RelaxSolverEpsilon) ||
+		SecondDirection.IsNearlyZero(RelaxSolverEpsilon))
+	{
+		return true;
+	}
+
+	const FVector FirstNormal = FirstDirection.GetSafeNormal();
+	const FVector SecondNormal = SecondDirection.GetSafeNormal();
+
+	return FVector::CrossProduct(FirstNormal, SecondNormal).SizeSquared() <=
+		FMath::Square(RelaxCollinearEpsilon);
+}
+
+FVector URayRopeComponent::GetClosestPointOnLine(
+	const FVector& Point,
+	const FVector& LineStart,
+	const FVector& LineEnd) const
+{
+	const FVector LineDirection = LineEnd - LineStart;
+	const float LineLengthSquared = LineDirection.SizeSquared();
+
+	if (LineLengthSquared <= KINDA_SMALL_NUMBER)
+	{
+		return LineStart;
+	}
+
+	const float T = FVector::DotProduct(Point - LineStart, LineDirection) / LineLengthSquared;
+	return LineStart + LineDirection * T;
 }
 
 

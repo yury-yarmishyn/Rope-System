@@ -37,6 +37,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
 	float RopePhysicalRadius = 2.f;
 	
+	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver")
+	float RelaxSolverEpsilon = 1.0f;
+
+	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver")
+	float RelaxCollinearEpsilon = 0.01f;
+	
 	// Dispatchers
 	
 	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
@@ -130,4 +136,15 @@ protected:
 		const FRayRopeSegment& CurrentSegment,
 		const FRayRopeSegment& ReferenceSegment,
 		FRayRopeNode& OutNode) const;
+	bool CanRelaxNodeByTrace(
+	const FRayRopeSegment& Segment,
+	int32 NodeIndex) const;
+	bool AreSegmentsCollinear(
+		const FRayRopeNode& PrevNode,
+		const FRayRopeNode& CurrentNode,
+		const FRayRopeNode& NextNode) const;
+	FVector GetClosestPointOnLine(
+		const FVector& Point,
+		const FVector& LineStart,
+		const FVector& LineEnd) const;
 };

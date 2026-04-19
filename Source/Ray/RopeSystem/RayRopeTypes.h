@@ -4,6 +4,8 @@
 #include "AITypes.h"
 #include "RayRopeTypes.generated.h"
 
+DECLARE_LOG_CATEGORY_EXTERN(LogRayRope, Log, All);
+
 UENUM(Blueprintable)
 enum class ENodeType : uint8
 {

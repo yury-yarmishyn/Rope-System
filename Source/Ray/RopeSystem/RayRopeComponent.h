@@ -35,7 +35,7 @@ public:
 	float MoveSolverEpsilon = 1.f;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
-	float RopePhysicalRadius = 5.f;
+	float RopePhysicalRadius = 2.f;
 	
 	// Dispatchers
 	
@@ -95,12 +95,13 @@ protected:
 		bool& bAnyNodeChanged) const;
 	
 	void BinarySearchCollisionBoundary(
-		FRayRopeNode& ValidLineStart, 
+		const FRayRopeSegment& Segment,
+		FRayRopeNode& ValidLineStart,
 		FRayRopeNode& ValidLineEnd,
 		FRayRopeNode& InvalidLineStart,
 		FRayRopeNode& InvalidLineEnd) const;
 	
-	void FindRedirectNode(
+	void CalculateRedirectNode(
 		const FRayRopeNode& LastValidLineStart,
 		const FRayRopeNode& LastValidLineEnd,
 		const FHitResult& SurfaceHit,
@@ -114,8 +115,16 @@ protected:
 	
 	FVector GetNodeDesiredWorldLocation(int32 NodeIndex, const FRayRopeSegment& InSegment) const;
 	FVector GetAnchorWorldLocation(const FRayRopeNode& Node) const;
-	FVector FindEffectiveRedirection(int32 NodeIndex, const FRayRopeSegment& InSegment) const;
-	FHitResult TraceNodes(const FRayRopeNode& StartNode, const FRayRopeNode& EndNode) const;
+	FVector FindEffectiveRedirect(int32 NodeIndex, const FRayRopeSegment& InSegment) const;
+	void TraceSegmentNodes(
+		const FRayRopeSegment& Segment,
+		const FRayRopeNode& StartNode,
+		const FRayRopeNode& EndNode,
+		FHitResult& SurfaceHit) const;
+	bool CanInsertWrapNode(
+		int32 InsertIndex, 
+		const FRayRopeSegment& Segment, 
+		const FRayRopeNode& Candidate) const;
 	bool TryCreateWrapNode(
 		int32 NodeIndex,
 		const FRayRopeSegment& CurrentSegment,

@@ -61,7 +61,7 @@ void URayRopeComponent::SolveRope()
 	
 	SyncAnchors(NewSegments);
 	
-	for (int SegmentIndex = 0; SegmentIndex < NewSegments.Num(); ++SegmentIndex)
+	for (int32 SegmentIndex = 0; SegmentIndex < NewSegments.Num(); ++SegmentIndex)
 	{
 		if (NewSegments[SegmentIndex].Nodes.Num() < 2)
 		{
@@ -169,64 +169,53 @@ void URayRopeComponent::WrapSegment(
 		return;
 	}
 
-	if (NewSegments[SegmentIndex].Nodes.Num() < 2)
+	FRayRopeSegment& CurrentSegment = NewSegments[SegmentIndex];
+	if (CurrentSegment.Nodes.Num() < 2)
 	{
 		return;
 	}
 
-	FRayRopeSegment ReferenceSegment;
+	const FRayRopeSegment& ReferenceSegment =
+		PrevSegments.IsValidIndex(SegmentIndex)
+			? PrevSegments[SegmentIndex]
+			: CurrentSegment;
 
-	if (PrevSegments.IsValidIndex(SegmentIndex))
+	const int32 ComparableNodeCount =
+		FMath::Min(CurrentSegment.Nodes.Num(), ReferenceSegment.Nodes.Num());
+
+	if (ComparableNodeCount < 2)
 	{
-		ReferenceSegment = PrevSegments[SegmentIndex];
-	}
-	else
-	{
-		ReferenceSegment = NewSegments[SegmentIndex];
-	}
-
-	FRayRopeSegment CurrentSegment = NewSegments[SegmentIndex];
-
-	for (int32 WrapCount = 0; WrapCount < MaxWrapIterations; ++WrapCount)
-	{
-		const int32 NodeCount = CurrentSegment.Nodes.Num();
-		if (NodeCount < 2)
-		{
-			break;
-		}
-
-		TMap<int32, FRayRopeSegment> NodesToAdd;
-
-		for (int32 NodeIndex = 0; NodeIndex < NodeCount - 1; ++NodeIndex)
-		{
-			if (!ReferenceSegment.Nodes.IsValidIndex(NodeIndex) ||
-				!ReferenceSegment.Nodes.IsValidIndex(NodeIndex + 1))
-			{
-				continue;
-			}
-
-			FRayRopeNode NodeToAdd;
-			if (!TryCreateWrapNode(NodeIndex, CurrentSegment, ReferenceSegment, NodeToAdd))
-			{
-				continue;
-			}
-
-			FRayRopeSegment SegmentToAdd;
-			SegmentToAdd.Nodes.Add(NodeToAdd);
-
-			NodesToAdd.Add(NodeIndex, MoveTemp(SegmentToAdd));
-		}
-
-		if (NodesToAdd.IsEmpty())
-		{
-			break;
-		}
-
-		ReferenceSegment = CurrentSegment;
-		AddNodesToSegment(NodesToAdd, CurrentSegment);
+		return;
 	}
 
-	NewSegments[SegmentIndex] = MoveTemp(CurrentSegment);
+	TMap<int32, FRayRopeSegment> NodesToAdd;
+
+	for (int32 NodeIndex = 0; NodeIndex < ComparableNodeCount - 1; ++NodeIndex)
+	{
+		FRayRopeNode NodeToAdd;
+		if (!TryCreateWrapNode(NodeIndex, CurrentSegment, ReferenceSegment, NodeToAdd))
+		{
+			continue;
+		}
+
+		const int32 InsertIndex = NodeIndex + 1;
+		if (!CanInsertWrapNode(InsertIndex, CurrentSegment, NodeToAdd))
+		{
+			continue;
+		}
+
+		FRayRopeSegment SegmentToAdd;
+		SegmentToAdd.Nodes.Add(MoveTemp(NodeToAdd));
+
+		NodesToAdd.Add(InsertIndex, MoveTemp(SegmentToAdd));
+	}
+
+	if (NodesToAdd.IsEmpty())
+	{
+		return;
+	}
+
+	AddNodesToSegment(NodesToAdd, CurrentSegment);
 }
 
 void URayRopeComponent::RelaxSegment(int32 SegmentIndex, TArray<FRayRopeSegment>& NewSegments) const
@@ -256,7 +245,7 @@ FVector URayRopeComponent::GetNodeDesiredWorldLocation(
 	
 	if (NewNode.NodeType == ENodeType::Redirect)
 	{
-		return FindEffectiveRedirection(NodeIndex, InSegment);
+		return FindEffectiveRedirect(NodeIndex, InSegment);
 	}
 	
 	return NewNode.WorldLocation;
@@ -291,7 +280,7 @@ FVector URayRopeComponent::GetAnchorWorldLocation(const FRayRopeNode& Node) cons
 	return AnchorComponent->GetSocketLocation(SocketName);
 }
 
-FVector URayRopeComponent::FindEffectiveRedirection(
+FVector URayRopeComponent::FindEffectiveRedirect(
 	int32 NodeIndex, 
 	const FRayRopeSegment& InSegment) const
 {
@@ -299,52 +288,84 @@ FVector URayRopeComponent::FindEffectiveRedirection(
 	return InSegment.Nodes[NodeIndex].WorldLocation;
 }
 
-FHitResult URayRopeComponent::TraceNodes(const FRayRopeNode& StartNode, const FRayRopeNode& EndNode) const
+void URayRopeComponent::TraceSegmentNodes(
+	const FRayRopeSegment& Segment,
+	const FRayRopeNode& StartNode,
+	const FRayRopeNode& EndNode,
+	FHitResult& SurfaceHit) const
 {
-	FHitResult HitResult;
+	SurfaceHit = FHitResult();
 
 	UWorld* World = GetWorld();
 	if (!World)
 	{
-		return HitResult;
+		return;
 	}
 
-	const FVector Start = StartNode.WorldLocation;
-	const FVector End = EndNode.WorldLocation;
-
-	FCollisionQueryParams QueryParams;
-	QueryParams.bTraceComplex = true;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(RayRopeTrace), true);
 	QueryParams.bReturnPhysicalMaterial = false;
-	
-	TArray<AActor*> ActorsToIgnore;
-	ActorsToIgnore.Reserve(3);
 
 	if (AActor* Owner = GetOwner())
 	{
-		ActorsToIgnore.AddUnique(Owner);
+		QueryParams.AddIgnoredActor(Owner);
 	}
 
-	if (IsValid(StartNode.AnchorActor))
+	for (const FRayRopeNode& Node : Segment.Nodes)
 	{
-		ActorsToIgnore.AddUnique(StartNode.AnchorActor);
+		if (Node.NodeType == ENodeType::Anchor && IsValid(Node.AnchorActor))
+		{
+			QueryParams.AddIgnoredActor(Node.AnchorActor);
+		}
 	}
-
-	if (IsValid(EndNode.AnchorActor))
-	{
-		ActorsToIgnore.AddUnique(EndNode.AnchorActor);
-	}
-
-	QueryParams.AddIgnoredActors(ActorsToIgnore);
 
 	World->LineTraceSingleByChannel(
-		HitResult,
-		Start,
-		End,
+		SurfaceHit,
+		StartNode.WorldLocation,
+		EndNode.WorldLocation,
 		ECC_Visibility,
 		QueryParams
 	);
+}
 
-	return HitResult;
+bool URayRopeComponent::CanInsertWrapNode(
+	int32 InsertIndex,
+	const FRayRopeSegment& Segment,
+	const FRayRopeNode& Candidate) const
+{
+	if (!Segment.Nodes.IsValidIndex(InsertIndex - 1) ||
+		!Segment.Nodes.IsValidIndex(InsertIndex))
+	{
+		return false;
+	}
+
+	const FVector& PrevLocation = Segment.Nodes[InsertIndex - 1].WorldLocation;
+	const FVector& NextLocation = Segment.Nodes[InsertIndex].WorldLocation;
+
+	if (Candidate.WorldLocation.Equals(PrevLocation, WrapSolverEpsilon) ||
+		Candidate.WorldLocation.Equals(NextLocation, WrapSolverEpsilon))
+	{
+		return false;
+	}
+
+	for (const FRayRopeNode& ExistingNode : Segment.Nodes)
+	{
+		const bool bSameAnchor =
+			Candidate.NodeType == ENodeType::Anchor &&
+			ExistingNode.NodeType == ENodeType::Anchor &&
+			ExistingNode.AnchorActor == Candidate.AnchorActor;
+
+		const bool bSameRedirect =
+			Candidate.NodeType == ENodeType::Redirect &&
+			ExistingNode.NodeType == ENodeType::Redirect &&
+			ExistingNode.WorldLocation.Equals(Candidate.WorldLocation, WrapSolverEpsilon);
+
+		if (bSameAnchor || bSameRedirect)
+		{
+			return false;
+		}
+	}
+
+	return true;
 }
 
 bool URayRopeComponent::TryCreateWrapNode(
@@ -368,13 +389,14 @@ bool URayRopeComponent::TryCreateWrapNode(
 	const FRayRopeNode& CurrentNode = CurrentSegment.Nodes[NodeIndex];
 	const FRayRopeNode& NextNode = CurrentSegment.Nodes[NodeIndex + 1];
 
-	FHitResult HitResult = TraceNodes(CurrentNode, NextNode);
-	if (!HitResult.bBlockingHit)
+	FHitResult SurfaceHit; 
+	TraceSegmentNodes(ReferenceSegment, CurrentNode, NextNode, SurfaceHit);
+	if (!SurfaceHit.bBlockingHit)
 	{
 		return false;
 	}
 
-	AActor* HitActor = HitResult.GetActor();
+	AActor* HitActor = SurfaceHit.GetActor();
 	if (!IsValid(HitActor))
 	{
 		return false;
@@ -395,58 +417,63 @@ bool URayRopeComponent::TryCreateWrapNode(
 	FRayRopeNode LastInvalidLineEnd = CurrentSegment.Nodes[NodeIndex + 1];
 
 	BinarySearchCollisionBoundary(
+		ReferenceSegment,
 		LastValidLineStart,
 		LastValidLineEnd,
 		LastInvalidLineStart,
 		LastInvalidLineEnd
 	);
 
-	HitResult = TraceNodes(LastInvalidLineStart, LastInvalidLineEnd);
-	if (!HitResult.bBlockingHit)
+	TraceSegmentNodes(ReferenceSegment, LastInvalidLineStart, LastInvalidLineEnd, SurfaceHit);
+	if (!SurfaceHit.bBlockingHit)
 	{
 		return false;
 	}
 
-	FindRedirectNode(
+	CalculateRedirectNode(
 		LastValidLineStart,
 		LastValidLineEnd,
-		HitResult,
+		SurfaceHit,
 		OutNode
 	);
 
 	return true;
 }
 
+
 void URayRopeComponent::BinarySearchCollisionBoundary(
-	FRayRopeNode& ValidLineStart, 
+	const FRayRopeSegment& Segment,
+	FRayRopeNode& ValidLineStart,
 	FRayRopeNode& ValidLineEnd,
 	FRayRopeNode& InvalidLineStart,
 	FRayRopeNode& InvalidLineEnd) const
 {
 	for (int32 i = 0; i < MaxBinarySearchIteration; ++i)
 	{
-		const bool bStartCloseEnough = 
+		const bool bStartCloseEnough =
 			FVector::Dist(ValidLineStart.WorldLocation, InvalidLineStart.WorldLocation) <= WrapSolverEpsilon;
-		
+
 		const bool bEndCloseEnough =
 			FVector::Dist(ValidLineEnd.WorldLocation, InvalidLineEnd.WorldLocation) <= WrapSolverEpsilon;
-		
+
 		if (bStartCloseEnough && bEndCloseEnough)
 		{
 			return;
 		}
-		
+
 		FRayRopeNode MidLineStart = ValidLineStart;
 		FRayRopeNode MidLineEnd = ValidLineEnd;
-		
+
 		MidLineStart.WorldLocation =
-			(ValidLineStart.WorldLocation + InvalidLineStart.WorldLocation) / 2;
-		
+			(ValidLineStart.WorldLocation + InvalidLineStart.WorldLocation) * 0.5f;
+
 		MidLineEnd.WorldLocation =
-			(ValidLineEnd.WorldLocation + InvalidLineEnd.WorldLocation) / 2;
-		
-		FHitResult HitResult = TraceNodes(MidLineStart, MidLineEnd);
-		if (HitResult.bBlockingHit)
+			(ValidLineEnd.WorldLocation + InvalidLineEnd.WorldLocation) * 0.5f;
+
+		FHitResult SurfaceHit;
+		TraceSegmentNodes(Segment, MidLineStart, MidLineEnd, SurfaceHit);
+
+		if (SurfaceHit.bBlockingHit)
 		{
 			InvalidLineStart = MidLineStart;
 			InvalidLineEnd = MidLineEnd;
@@ -459,7 +486,7 @@ void URayRopeComponent::BinarySearchCollisionBoundary(
 	}
 }
 
-void URayRopeComponent::FindRedirectNode(
+void URayRopeComponent::CalculateRedirectNode(
 	const FRayRopeNode& LastValidLineStart,
 	const FRayRopeNode& LastValidLineEnd,
 	const FHitResult& SurfaceHit,
@@ -485,13 +512,16 @@ void URayRopeComponent::FindRedirectNode(
 		RedirectNode.WorldLocation = DistanceToStart <= DistanceToEnd
 			? LineStart
 			: LineEnd;
-		return;
+	}
+	else
+	{
+		float T = FVector::DotProduct(PlanePoint - LineStart, PlaneNormal) / Denominator;
+		T = FMath::Clamp(T, 0.f, 1.f);
+
+		RedirectNode.WorldLocation = LineStart + LineDirection * T;
 	}
 
-	float T = FVector::DotProduct(PlanePoint - LineStart, PlaneNormal) / Denominator;
-	T = FMath::Clamp(T, 0.f, 1.f);
-
-	RedirectNode.WorldLocation = LineStart + LineDirection * T;
+	RedirectNode.WorldLocation += PlaneNormal * RopePhysicalRadius;
 }
 
 void URayRopeComponent::AddNodesToSegment(
@@ -503,7 +533,7 @@ void URayRopeComponent::AddNodesToSegment(
 		return;
 	}
 
-	for (int32 NodeIndex = NewSegment.Nodes.Num() - 2; NodeIndex > 0; --NodeIndex)
+	for (int32 NodeIndex = NewSegment.Nodes.Num() - 1; NodeIndex > 0; --NodeIndex)
 	{
 		const FRayRopeSegment* NodesSegment = NodesToAdd.Find(NodeIndex);
 		if (!NodesSegment || NodesSegment->Nodes.IsEmpty())
@@ -524,7 +554,8 @@ void URayRopeComponent::SplitSegmentOnAnchors(
 		return;
 	}
 	
-	const TArray<FRayRopeNode>& Nodes = NewSegments[SegmentIndex].Nodes;
+	// Removed &
+	const TArray<FRayRopeNode> Nodes = NewSegments[SegmentIndex].Nodes;
 	const int32 NodeCount = Nodes.Num();
 
 	if (NodeCount < 2)

@@ -1,16 +1,10 @@
-﻿#include "RayRopeComponent.h"
+#include "RayRopeComponent.h"
 
-#include <ThirdParty/ShaderConductor/ShaderConductor/External/DirectXShaderCompiler/include/dxc/DXIL/DxilConstants.h>
-
-#include "AnalyticsEventAttribute.h"
-#include "DiffResults.h"
-#include "DrawDebugHelpers.h"
+#include "CollisionQueryParams.h"
+#include "Components/SceneComponent.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
-#include "VectorUtil.h"
-#include "Engine/Engine.h"
 #include "RayRopeInterface.h"
-#include "EntitySystem/MovieSceneEntitySystemRunner.h"
 
 URayRopeComponent::URayRopeComponent()
 {
@@ -28,7 +22,7 @@ void URayRopeComponent::TickComponent(
 	FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-	
+
 	SolveRope();
 }
 
@@ -39,211 +33,125 @@ const TArray<FRayRopeSegment>& URayRopeComponent::GetSegments() const
 
 void URayRopeComponent::SetSegments(TArray<FRayRopeSegment> NewSegments)
 {
-	Segments = NewSegments;
-	
-	// Example: You can bind your rope drawing component to OnSegmentSet.
+	Segments = MoveTemp(NewSegments);
 	OnSegmentsSet.Broadcast();
 }
 
 void URayRopeComponent::SolveRope()
 {
-	/*
-	 * Segments is the source of visual data, to avoid rope jittering better change them once a tick.
-	 * Because of this we're copying Segments and constructing new array inside the function.
-	 * 
-	 * Q: Why copy instead of creating a segment from scratch?
-	 * A: Because we want to follow the logic of the rope, not the shortest path. 
-	 * Therefore, for the rope to function properly, we need to know its previous position.
-	 * No, permanent accessing Segments during calculation is not safe, as they may be modified.
-	 */
-	TArray<FRayRopeSegment> NewSegments = GetSegments();
-	TArray<FRayRopeSegment> PrevSegments = GetSegments();
-	
-	SyncAnchors(NewSegments);
-	
-	for (int32 SegmentIndex = 0; SegmentIndex < NewSegments.Num(); ++SegmentIndex)
+	for (int32 SegmentIndex = 0; SegmentIndex < Segments.Num(); ++SegmentIndex)
 	{
-		if (NewSegments[SegmentIndex].Nodes.Num() < 2)
+		if (!Segments.IsValidIndex(SegmentIndex))
 		{
 			continue;
 		}
-		
-		MoveSegment(SegmentIndex, NewSegments);
-		WrapSegment(SegmentIndex, NewSegments, PrevSegments);
-		RelaxSegment(SegmentIndex, NewSegments);
-		
-		SplitSegmentOnAnchors(SegmentIndex, NewSegments);
-		PrevSegments = NewSegments;
+
+		FRayRopeSegment& Segment = Segments[SegmentIndex];
+		if (Segment.Nodes.Num() < 2)
+		{
+			continue;
+		}
+
+		const FRayRopeSegment ReferenceSegment = Segment;
+		SyncSegmentAnchors(Segment);
+		MoveSegment(Segment);
+		WrapSegment(Segment, ReferenceSegment);
+		RelaxSegment(Segment);
+		SplitSegmentOnAnchors(SegmentIndex);
 	}
-	
-	SetSegments(NewSegments);
+
+	OnSegmentsSet.Broadcast();
 }
 
-void URayRopeComponent::SyncAnchors(
-	TArray<FRayRopeSegment>& NewSegments) const
+void URayRopeComponent::SyncSegmentAnchors(FRayRopeSegment& Segment) const
 {
-	for (FRayRopeSegment& Segment : NewSegments)
-	{
-		const int32 NodeCount = Segment.Nodes.Num();
-		if (NodeCount < 2)
-		{
-			continue;
-		}
-
-		FRayRopeNode& FirstAnchor = Segment.Nodes[0];
-		FRayRopeNode& LastAnchor = Segment.Nodes.Last();
-
-		if (FirstAnchor.NodeType != ENodeType::Anchor ||
-			LastAnchor.NodeType != ENodeType::Anchor)
-		{
-			continue;
-		}
-
-		if (!IsValid(FirstAnchor.AnchorActor) ||
-			!IsValid(LastAnchor.AnchorActor))
-		{
-			continue;
-		}
-
-		FirstAnchor.WorldLocation = GetAnchorWorldLocation(FirstAnchor);
-		LastAnchor.WorldLocation = GetAnchorWorldLocation(LastAnchor);
-	}
-}
-
-/* 
- * The move function shifts the points to the desired position until they stop changing.
- * 
- */
-
-void URayRopeComponent::MoveSegment(
-	int32 SegmentIndex,
-	TArray<FRayRopeSegment>& NewSegments) const
-{
-	if (!NewSegments.IsValidIndex(SegmentIndex))
-	{
-		return;
-	}
-
-	FRayRopeSegment& NewSegment = NewSegments[SegmentIndex];
-	const int32 NodeCount = NewSegment.Nodes.Num();
-
+	const int32 NodeCount = Segment.Nodes.Num();
 	if (NodeCount < 2)
 	{
 		return;
 	}
 
-	for (int32 MovePassCount = 0; MovePassCount < MaxMoveIterations; ++MovePassCount)
+	FRayRopeNode& FirstAnchor = Segment.Nodes[0];
+	FRayRopeNode& LastAnchor = Segment.Nodes.Last();
+
+	if (FirstAnchor.NodeType != ENodeType::Anchor ||
+		LastAnchor.NodeType != ENodeType::Anchor)
 	{
-		const bool bForward = (MovePassCount % 2 == 0);
-		bool bAnyNodeChanged = false;
-
-		if (bForward)
-		{
-			for (int32 NodeIndex = 1; NodeIndex < NodeCount - 1; ++NodeIndex)
-			{
-				MoveNode(NodeIndex, NewSegment, bAnyNodeChanged);
-			}
-		}
-		else
-		{
-			for (int32 NodeIndex = NodeCount - 2; NodeIndex > 0; --NodeIndex)
-			{
-				MoveNode(NodeIndex, NewSegment, bAnyNodeChanged);
-			}
-		}
-
-		if (!bAnyNodeChanged)
-		{
-			break;
-		}
+		return;
 	}
+
+	if (!IsValid(FirstAnchor.AnchorActor) ||
+		!IsValid(LastAnchor.AnchorActor))
+	{
+		return;
+	}
+
+	FirstAnchor.WorldLocation = GetAnchorWorldLocation(FirstAnchor);
+	LastAnchor.WorldLocation = GetAnchorWorldLocation(LastAnchor);
+}
+
+void URayRopeComponent::MoveSegment(FRayRopeSegment& Segment) const
+{
+	// Reserved for the next solver step.
 }
 
 void URayRopeComponent::WrapSegment(
-	int32 SegmentIndex,
-	TArray<FRayRopeSegment>& NewSegments,
-	const TArray<FRayRopeSegment>& PrevSegments) const
+	FRayRopeSegment& Segment,
+	const FRayRopeSegment& ReferenceSegment) const
 {
-	if (!NewSegments.IsValidIndex(SegmentIndex))
-	{
-		return;
-	}
-
-	FRayRopeSegment& CurrentSegment = NewSegments[SegmentIndex];
-	if (CurrentSegment.Nodes.Num() < 2)
-	{
-		return;
-	}
-
-	const FRayRopeSegment& ReferenceSegment =
-		PrevSegments.IsValidIndex(SegmentIndex)
-			? PrevSegments[SegmentIndex]
-			: CurrentSegment;
-
 	const int32 ComparableNodeCount =
-		FMath::Min(CurrentSegment.Nodes.Num(), ReferenceSegment.Nodes.Num());
+		FMath::Min(Segment.Nodes.Num(), ReferenceSegment.Nodes.Num());
 
 	if (ComparableNodeCount < 2)
 	{
 		return;
 	}
 
-	TMap<int32, FRayRopeSegment> NodesToAdd;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(RayRopeTrace), true);
+	BuildTraceQueryParams(Segment, QueryParams);
+
+	TArray<int32> InsertIndices;
+	TArray<FRayRopeNode> PendingNodes;
+	InsertIndices.Reserve(ComparableNodeCount - 1);
+	PendingNodes.Reserve(ComparableNodeCount - 1);
 
 	for (int32 NodeIndex = 0; NodeIndex < ComparableNodeCount - 1; ++NodeIndex)
 	{
 		FRayRopeNode NodeToAdd;
-		if (!TryCreateWrapNode(NodeIndex, CurrentSegment, ReferenceSegment, NodeToAdd))
+		if (!TryCreateWrapNode(NodeIndex, Segment, ReferenceSegment, QueryParams, NodeToAdd))
 		{
 			continue;
 		}
 
 		const int32 InsertIndex = NodeIndex + 1;
-		if (!CanInsertWrapNode(InsertIndex, CurrentSegment, NodeToAdd))
+		if (!CanInsertWrapNode(InsertIndex, Segment, NodeToAdd, PendingNodes))
 		{
 			continue;
 		}
 
-		FRayRopeSegment SegmentToAdd;
-		SegmentToAdd.Nodes.Add(MoveTemp(NodeToAdd));
-
-		NodesToAdd.Add(InsertIndex, MoveTemp(SegmentToAdd));
+		InsertIndices.Add(InsertIndex);
+		PendingNodes.Add(MoveTemp(NodeToAdd));
 	}
 
-	if (NodesToAdd.IsEmpty())
+	for (int32 PendingIndex = PendingNodes.Num() - 1; PendingIndex >= 0; --PendingIndex)
 	{
-		return;
+		Segment.Nodes.Insert(MoveTemp(PendingNodes[PendingIndex]), InsertIndices[PendingIndex]);
 	}
-
-	AddNodesToSegment(NodesToAdd, CurrentSegment);
 }
 
-void URayRopeComponent::RelaxSegment(
-	int32 SegmentIndex,
-	TArray<FRayRopeSegment>& NewSegments) const
+void URayRopeComponent::RelaxSegment(FRayRopeSegment& Segment) const
 {
-	if (!NewSegments.IsValidIndex(SegmentIndex))
-	{
-		return;
-	}
-
-	FRayRopeSegment& Segment = NewSegments[SegmentIndex];
 	if (Segment.Nodes.Num() < 3)
 	{
 		return;
 	}
 
-	int32 NodeIndex = 1;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(RayRopeRelaxTrace), true);
+	BuildTraceQueryParams(Segment, QueryParams);
 
+	int32 NodeIndex = 1;
 	while (NodeIndex < Segment.Nodes.Num() - 1)
 	{
-		if (!Segment.Nodes.IsValidIndex(NodeIndex - 1) ||
-			!Segment.Nodes.IsValidIndex(NodeIndex) ||
-			!Segment.Nodes.IsValidIndex(NodeIndex + 1))
-		{
-			break;
-		}
-
 		const FRayRopeNode& CurrentNode = Segment.Nodes[NodeIndex];
 		if (CurrentNode.NodeType == ENodeType::Anchor)
 		{
@@ -253,48 +161,15 @@ void URayRopeComponent::RelaxSegment(
 
 		const FRayRopeNode& PrevNode = Segment.Nodes[NodeIndex - 1];
 		const FRayRopeNode& NextNode = Segment.Nodes[NodeIndex + 1];
-
-		const bool bCanRemoveByTrace = CanRelaxNodeByTrace(Segment, NodeIndex);
-		const bool bCanRemoveByCollinear = AreSegmentsCollinear(PrevNode, CurrentNode, NextNode);
-
-		if (bCanRemoveByTrace || bCanRemoveByCollinear)
+		if (CanRemoveRelaxNode(PrevNode, CurrentNode, NextNode, QueryParams))
 		{
-			Segment.Nodes.RemoveAt(NodeIndex);
+			Segment.Nodes.RemoveAt(NodeIndex, 1, EAllowShrinking::No);
 			continue;
 		}
 
 		++NodeIndex;
 	}
 }
-
-void URayRopeComponent::MoveNode(int32 NodeIndex, FRayRopeSegment& NewSegment, bool& bAnyNodeChanged) const
-{
-	const FRayRopeNode OldNode = NewSegment.Nodes[NodeIndex];
-	FRayRopeNode& NewNode = NewSegment.Nodes[NodeIndex];
-			
-	// Getting new WorldLocation.
-	NewNode.WorldLocation = GetNodeDesiredWorldLocation(NodeIndex, NewSegment);
-
-	if (!NewNode.WorldLocation.Equals(OldNode.WorldLocation, MoveSolverEpsilon))
-	{
-		bAnyNodeChanged = true;
-	}
-}
-
-FVector URayRopeComponent::GetNodeDesiredWorldLocation(
-	int32 NodeIndex,
-	const FRayRopeSegment& InSegment) const
-{
-	const FRayRopeNode& NewNode = InSegment.Nodes[NodeIndex];
-	
-	if (NewNode.NodeType == ENodeType::Redirect)
-	{
-		return FindEffectiveRedirect(NodeIndex, InSegment);
-	}
-	
-	return NewNode.WorldLocation;
-}
-
 
 FVector URayRopeComponent::GetAnchorWorldLocation(const FRayRopeNode& Node) const
 {
@@ -315,7 +190,6 @@ FVector URayRopeComponent::GetAnchorWorldLocation(const FRayRopeNode& Node) cons
 	}
 
 	const FName SocketName = IRayRopeInterface::Execute_GetAnchorSocketName(Node.AnchorActor);
-
 	if (SocketName == NAME_None || !AnchorComponent->DoesSocketExist(SocketName))
 	{
 		return AnchorComponent->GetComponentLocation();
@@ -324,29 +198,10 @@ FVector URayRopeComponent::GetAnchorWorldLocation(const FRayRopeNode& Node) cons
 	return AnchorComponent->GetSocketLocation(SocketName);
 }
 
-FVector URayRopeComponent::FindEffectiveRedirect(
-	int32 NodeIndex, 
-	const FRayRopeSegment& InSegment) const
-{
-	// WIP
-	return InSegment.Nodes[NodeIndex].WorldLocation;
-}
-
-void URayRopeComponent::TraceSegmentNodes(
+void URayRopeComponent::BuildTraceQueryParams(
 	const FRayRopeSegment& Segment,
-	const FRayRopeNode& StartNode,
-	const FRayRopeNode& EndNode,
-	FHitResult& SurfaceHit) const
+	FCollisionQueryParams& QueryParams) const
 {
-	SurfaceHit = FHitResult();
-
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
-
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(RayRopeTrace), true);
 	QueryParams.bReturnPhysicalMaterial = false;
 
 	if (AActor* Owner = GetOwner())
@@ -361,11 +216,26 @@ void URayRopeComponent::TraceSegmentNodes(
 			QueryParams.AddIgnoredActor(Node.AnchorActor);
 		}
 	}
+}
+
+void URayRopeComponent::TraceRopeLine(
+	const FCollisionQueryParams& QueryParams,
+	const FVector& StartLocation,
+	const FVector& EndLocation,
+	FHitResult& SurfaceHit) const
+{
+	SurfaceHit = FHitResult();
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
 
 	World->LineTraceSingleByChannel(
 		SurfaceHit,
-		StartNode.WorldLocation,
-		EndNode.WorldLocation,
+		StartLocation,
+		EndLocation,
 		ECC_Visibility,
 		QueryParams
 	);
@@ -374,7 +244,8 @@ void URayRopeComponent::TraceSegmentNodes(
 bool URayRopeComponent::CanInsertWrapNode(
 	int32 InsertIndex,
 	const FRayRopeSegment& Segment,
-	const FRayRopeNode& Candidate) const
+	const FRayRopeNode& Candidate,
+	const TArray<FRayRopeNode>& PendingNodes) const
 {
 	if (!Segment.Nodes.IsValidIndex(InsertIndex - 1) ||
 		!Segment.Nodes.IsValidIndex(InsertIndex))
@@ -393,17 +264,15 @@ bool URayRopeComponent::CanInsertWrapNode(
 
 	for (const FRayRopeNode& ExistingNode : Segment.Nodes)
 	{
-		const bool bSameAnchor =
-			Candidate.NodeType == ENodeType::Anchor &&
-			ExistingNode.NodeType == ENodeType::Anchor &&
-			ExistingNode.AnchorActor == Candidate.AnchorActor;
+		if (AreEquivalentWrapNodes(ExistingNode, Candidate))
+		{
+			return false;
+		}
+	}
 
-		const bool bSameRedirect =
-			Candidate.NodeType == ENodeType::Redirect &&
-			ExistingNode.NodeType == ENodeType::Redirect &&
-			ExistingNode.WorldLocation.Equals(Candidate.WorldLocation, WrapSolverEpsilon);
-
-		if (bSameAnchor || bSameRedirect)
+	for (const FRayRopeNode& PendingNode : PendingNodes)
+	{
+		if (AreEquivalentWrapNodes(PendingNode, Candidate))
 		{
 			return false;
 		}
@@ -412,10 +281,28 @@ bool URayRopeComponent::CanInsertWrapNode(
 	return true;
 }
 
+bool URayRopeComponent::AreEquivalentWrapNodes(
+	const FRayRopeNode& FirstNode,
+	const FRayRopeNode& SecondNode) const
+{
+	const bool bSameAnchor =
+		FirstNode.NodeType == ENodeType::Anchor &&
+		SecondNode.NodeType == ENodeType::Anchor &&
+		FirstNode.AnchorActor == SecondNode.AnchorActor;
+
+	const bool bSameRedirect =
+		FirstNode.NodeType == ENodeType::Redirect &&
+		SecondNode.NodeType == ENodeType::Redirect &&
+		FirstNode.WorldLocation.Equals(SecondNode.WorldLocation, WrapSolverEpsilon);
+
+	return bSameAnchor || bSameRedirect;
+}
+
 bool URayRopeComponent::TryCreateWrapNode(
 	int32 NodeIndex,
 	const FRayRopeSegment& CurrentSegment,
 	const FRayRopeSegment& ReferenceSegment,
+	const FCollisionQueryParams& QueryParams,
 	FRayRopeNode& OutNode) const
 {
 	if (!CurrentSegment.Nodes.IsValidIndex(NodeIndex) ||
@@ -433,8 +320,12 @@ bool URayRopeComponent::TryCreateWrapNode(
 	const FRayRopeNode& CurrentNode = CurrentSegment.Nodes[NodeIndex];
 	const FRayRopeNode& NextNode = CurrentSegment.Nodes[NodeIndex + 1];
 
-	FHitResult SurfaceHit; 
-	TraceSegmentNodes(ReferenceSegment, CurrentNode, NextNode, SurfaceHit);
+	FHitResult SurfaceHit;
+	TraceRopeLine(
+		QueryParams,
+		CurrentNode.WorldLocation,
+		NextNode.WorldLocation,
+		SurfaceHit);
 	if (!SurfaceHit.bBlockingHit)
 	{
 		return false;
@@ -461,14 +352,18 @@ bool URayRopeComponent::TryCreateWrapNode(
 	FRayRopeNode LastInvalidLineEnd = CurrentSegment.Nodes[NodeIndex + 1];
 
 	BinarySearchCollisionBoundary(
-		ReferenceSegment,
 		LastValidLineStart,
 		LastValidLineEnd,
 		LastInvalidLineStart,
-		LastInvalidLineEnd
+		LastInvalidLineEnd,
+		QueryParams
 	);
 
-	TraceSegmentNodes(ReferenceSegment, LastInvalidLineStart, LastInvalidLineEnd, SurfaceHit);
+	TraceRopeLine(
+		QueryParams,
+		LastInvalidLineStart.WorldLocation,
+		LastInvalidLineEnd.WorldLocation,
+		SurfaceHit);
 	if (!SurfaceHit.bBlockingHit)
 	{
 		return false;
@@ -484,76 +379,24 @@ bool URayRopeComponent::TryCreateWrapNode(
 	return true;
 }
 
-bool URayRopeComponent::CanRelaxNodeByTrace(
-	const FRayRopeSegment& Segment,
-	int32 NodeIndex) const
+bool URayRopeComponent::CanRemoveRelaxNode(
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FCollisionQueryParams& QueryParams) const
 {
-	if (!Segment.Nodes.IsValidIndex(NodeIndex - 1) ||
-		!Segment.Nodes.IsValidIndex(NodeIndex) ||
-		!Segment.Nodes.IsValidIndex(NodeIndex + 1))
+	if (!GetWorld())
 	{
 		return false;
-	}
-
-	const FRayRopeNode& PrevNode = Segment.Nodes[NodeIndex - 1];
-	const FRayRopeNode& CurrentNode = Segment.Nodes[NodeIndex];
-	const FRayRopeNode& NextNode = Segment.Nodes[NodeIndex + 1];
-
-	const FVector TraceStart = CurrentNode.WorldLocation;
-	const FVector ClosestPoint = GetClosestPointOnLine(
-		TraceStart,
-		PrevNode.WorldLocation,
-		NextNode.WorldLocation);
-
-	if (TraceStart.Equals(ClosestPoint, RelaxSolverEpsilon))
-	{
-		return true;
-	}
-
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return false;
-	}
-
-	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(RayRopeRelaxTrace), true);
-	QueryParams.bReturnPhysicalMaterial = false;
-
-	if (AActor* Owner = GetOwner())
-	{
-		QueryParams.AddIgnoredActor(Owner);
-	}
-
-	for (const FRayRopeNode& Node : Segment.Nodes)
-	{
-		if (Node.NodeType == ENodeType::Anchor && IsValid(Node.AnchorActor))
-		{
-			QueryParams.AddIgnoredActor(Node.AnchorActor);
-		}
 	}
 
 	FHitResult SurfaceHit;
-	World->LineTraceSingleByChannel(
-		SurfaceHit,
-		TraceStart,
-		ClosestPoint,
-		ECC_Visibility,
-		QueryParams
-	);
-
+	TraceRopeLine(QueryParams, PrevNode.WorldLocation, NextNode.WorldLocation, SurfaceHit);
 	if (SurfaceHit.bBlockingHit)
 	{
 		return false;
 	}
 
-	return true;
-}
-
-bool URayRopeComponent::AreSegmentsCollinear(
-	const FRayRopeNode& PrevNode,
-	const FRayRopeNode& CurrentNode,
-	const FRayRopeNode& NextNode) const
-{
 	const FVector FirstDirection = CurrentNode.WorldLocation - PrevNode.WorldLocation;
 	const FVector SecondDirection = NextNode.WorldLocation - CurrentNode.WorldLocation;
 
@@ -566,34 +409,34 @@ bool URayRopeComponent::AreSegmentsCollinear(
 	const FVector FirstNormal = FirstDirection.GetSafeNormal();
 	const FVector SecondNormal = SecondDirection.GetSafeNormal();
 
-	return FVector::CrossProduct(FirstNormal, SecondNormal).SizeSquared() <=
-		FMath::Square(RelaxCollinearEpsilon);
-}
-
-FVector URayRopeComponent::GetClosestPointOnLine(
-	const FVector& Point,
-	const FVector& LineStart,
-	const FVector& LineEnd) const
-{
-	const FVector LineDirection = LineEnd - LineStart;
-	const float LineLengthSquared = LineDirection.SizeSquared();
-
-	if (LineLengthSquared <= KINDA_SMALL_NUMBER)
+	if (FVector::CrossProduct(FirstNormal, SecondNormal).SizeSquared() <=
+		FMath::Square(RelaxCollinearEpsilon))
 	{
-		return LineStart;
+		return true;
 	}
 
-	const float T = FVector::DotProduct(Point - LineStart, LineDirection) / LineLengthSquared;
-	return LineStart + LineDirection * T;
+	const FVector LineDirection = NextNode.WorldLocation - PrevNode.WorldLocation;
+	const float T = FVector::DotProduct(
+		CurrentNode.WorldLocation - PrevNode.WorldLocation,
+		LineDirection) / LineDirection.SizeSquared();
+	const FVector ClosestPoint = PrevNode.WorldLocation + LineDirection * T;
+
+	if (CurrentNode.WorldLocation.Equals(ClosestPoint, RelaxSolverEpsilon))
+	{
+		return true;
+	}
+
+	TraceRopeLine(QueryParams, CurrentNode.WorldLocation, ClosestPoint, SurfaceHit);
+
+	return !SurfaceHit.bBlockingHit;
 }
 
-
 void URayRopeComponent::BinarySearchCollisionBoundary(
-	const FRayRopeSegment& Segment,
 	FRayRopeNode& ValidLineStart,
 	FRayRopeNode& ValidLineEnd,
 	FRayRopeNode& InvalidLineStart,
-	FRayRopeNode& InvalidLineEnd) const
+	FRayRopeNode& InvalidLineEnd,
+	const FCollisionQueryParams& QueryParams) const
 {
 	for (int32 i = 0; i < MaxBinarySearchIteration; ++i)
 	{
@@ -618,7 +461,11 @@ void URayRopeComponent::BinarySearchCollisionBoundary(
 			(ValidLineEnd.WorldLocation + InvalidLineEnd.WorldLocation) * 0.5f;
 
 		FHitResult SurfaceHit;
-		TraceSegmentNodes(Segment, MidLineStart, MidLineEnd, SurfaceHit);
+		TraceRopeLine(
+			QueryParams,
+			MidLineStart.WorldLocation,
+			MidLineEnd.WorldLocation,
+			SurfaceHit);
 
 		if (SurfaceHit.bBlockingHit)
 		{
@@ -671,64 +518,40 @@ void URayRopeComponent::CalculateRedirectNode(
 	RedirectNode.WorldLocation += PlaneNormal * RopePhysicalRadius;
 }
 
-void URayRopeComponent::AddNodesToSegment(
-	const TMap<int32, FRayRopeSegment>& NodesToAdd,
-	FRayRopeSegment& NewSegment) const
+void URayRopeComponent::SplitSegmentOnAnchors(int32 SegmentIndex)
 {
-	if (NodesToAdd.IsEmpty() || NewSegment.Nodes.Num() < 2)
+	if (!Segments.IsValidIndex(SegmentIndex))
 	{
 		return;
 	}
 
-	for (int32 NodeIndex = NewSegment.Nodes.Num() - 1; NodeIndex > 0; --NodeIndex)
-	{
-		const FRayRopeSegment* NodesSegment = NodesToAdd.Find(NodeIndex);
-		if (!NodesSegment || NodesSegment->Nodes.IsEmpty())
-		{
-			continue;
-		}
-
-		NewSegment.Nodes.Insert(NodesSegment->Nodes, NodeIndex);
-	}
-}
-
-void URayRopeComponent::SplitSegmentOnAnchors(
-	int32 SegmentIndex,
-	TArray<FRayRopeSegment>& NewSegments) const
-{
-	if (!NewSegments.IsValidIndex(SegmentIndex))
-	{
-		return;
-	}
-	
-	// Removed &
-	const TArray<FRayRopeNode> Nodes = NewSegments[SegmentIndex].Nodes;
+	const TArray<FRayRopeNode>& Nodes = Segments[SegmentIndex].Nodes;
 	const int32 NodeCount = Nodes.Num();
-
-	if (NodeCount < 2)
+	if (NodeCount < 3)
 	{
 		return;
 	}
 
 	TArray<FRayRopeSegment> SplitSegments;
 	int32 StartIndex = 0;
-
-	for (int32 i = 1; i < NodeCount; ++i)
+	for (int32 NodeIndex = 1; NodeIndex < NodeCount; ++NodeIndex)
 	{
 		const bool bShouldSplit =
-			i == NodeCount - 1 ||
-			Nodes[i].NodeType == ENodeType::Anchor;
+			NodeIndex == NodeCount - 1 ||
+			Nodes[NodeIndex].NodeType == ENodeType::Anchor;
 
 		if (!bShouldSplit)
 		{
 			continue;
 		}
 
+		const int32 NewNodeCount = NodeIndex - StartIndex + 1;
 		FRayRopeSegment NewSegment;
-		NewSegment.Nodes.Append(&Nodes[StartIndex], i - StartIndex + 1);
+		NewSegment.Nodes.Reserve(NewNodeCount);
+		NewSegment.Nodes.Append(&Nodes[StartIndex], NewNodeCount);
 		SplitSegments.Add(MoveTemp(NewSegment));
 
-		StartIndex = i;
+		StartIndex = NodeIndex;
 	}
 
 	if (SplitSegments.Num() <= 1)
@@ -736,6 +559,12 @@ void URayRopeComponent::SplitSegmentOnAnchors(
 		return;
 	}
 
-	NewSegments.RemoveAt(SegmentIndex);
-	NewSegments.Insert(SplitSegments, SegmentIndex);
+	const int32 SegmentCountAfterSplit = Segments.Num() + SplitSegments.Num() - 1;
+	Segments.RemoveAt(SegmentIndex, 1, EAllowShrinking::No);
+	Segments.Reserve(SegmentCountAfterSplit);
+
+	for (int32 SplitIndex = 0; SplitIndex < SplitSegments.Num(); ++SplitIndex)
+	{
+		Segments.Insert(MoveTemp(SplitSegments[SplitIndex]), SegmentIndex + SplitIndex);
+	}
 }

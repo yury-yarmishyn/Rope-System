@@ -10,6 +10,7 @@
     <list default="true" id="2dea0756-89ad-4b16-a6af-321e29acfa71" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/.idea.Ray.dir/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/.idea.Ray.dir/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_Player.uasset" beforeDir="false" afterPath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_Player.uasset" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Content/Ray/NewBlueprint.uasset" beforeDir="false" afterPath="$PROJECT_DIR$/Content/Ray/NewBlueprint.uasset" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeComponent.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeComponent.cpp" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeComponent.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeComponent.h" afterDir="false" />
     </list>
@@ -45,7 +46,6 @@
   }
 }</component>
   <component name="HighlightingSettingsPerFile">
-    <setting file="cidr-memory-view://25" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/../../UE_5.7/Engine/Source/Runtime/Core/Public/Math/MathFwd.h" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/../../UE_5.7/Engine/Source/Runtime/Core/Public/Math/Plane.h" root0="FORCE_HIGHLIGHTING" />
     <setting file="file://$PROJECT_DIR$/../../UE_5.7/Engine/Source/Runtime/Core/Public/Templates/MemoryOps.h" root0="FORCE_HIGHLIGHTING" />
@@ -73,7 +73,7 @@
     &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;Uproject.Ray.executor&quot;: &quot;Debug&quot;,
+    &quot;Uproject.Ray.executor&quot;: &quot;Run&quot;,
     &quot;git-widget-placeholder&quot;: &quot;main&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
@@ -195,7 +195,9 @@
       <workItem from="1776164696507" duration="5410000" />
       <workItem from="1776329552953" duration="597000" />
       <workItem from="1776491932419" duration="29799000" />
-      <workItem from="1776578538548" duration="16476000" />
+      <workItem from="1776578538548" duration="16746000" />
+      <workItem from="1776860804214" duration="5398000" />
+      <workItem from="1776868987671" duration="800000" />
     </task>
     <servers />
   </component>

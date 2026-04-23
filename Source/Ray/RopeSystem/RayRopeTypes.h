@@ -24,9 +24,14 @@ struct FRayRopeNode
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Node")
 	FVector WorldLocation = FVector::ZeroVector;
 	
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Node", 
-		meta = (EditCondition = "NodeType == ENodeType::Anchor", EditConditionHides))
-	AActor* AnchorActor = nullptr;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Node")
+	AActor* AttachActor = nullptr;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Node")
+	bool bUseAttachActorOffset = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Node")
+	FVector AttachActorOffset = FVector::ZeroVector;
 };
 
 USTRUCT(BlueprintType)

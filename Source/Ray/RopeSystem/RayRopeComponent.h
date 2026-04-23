@@ -55,6 +55,7 @@ protected:
 	void SolveRope();
 	void SyncSegmentAnchors(FRayRopeSegment& Segment) const;
 	void SyncAttachedRedirectNodes(FRayRopeSegment& Segment) const;
+	void MoveSegment(FRayRopeSegment& Segment) const;
 	void WrapSegment(FRayRopeSegment& Segment, const FRayRopeSegment& ReferenceSegment) const;
 	void RelaxSegment(FRayRopeSegment& Segment) const;
 	void SplitSegmentOnAnchors(int32 SegmentIndex);

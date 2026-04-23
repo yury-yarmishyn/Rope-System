@@ -46,6 +46,7 @@ void URayRopeComponent::SolveRope()
 		const FRayRopeSegment ReferenceSegment = Segment;
 		SyncSegmentAnchors(Segment);
 		SyncAttachedRedirectNodes(Segment);
+		MoveSegment(Segment);
 		WrapSegment(Segment, ReferenceSegment);
 		RelaxSegment(Segment);
 		SplitSegmentOnAnchors(SegmentIndex);
@@ -95,6 +96,12 @@ void URayRopeComponent::SyncAttachedRedirectNodes(FRayRopeSegment& Segment) cons
 		Node.WorldLocation =
 			Node.AttachActor->GetActorTransform().TransformPosition(Node.AttachActorOffset);
 	}
+}
+
+void URayRopeComponent::MoveSegment(FRayRopeSegment& Segment) const
+{
+	static_cast<void>(Segment);
+	// Placeholder for future segment movement or constraint solving logic.
 }
 
 void URayRopeComponent::WrapSegment(

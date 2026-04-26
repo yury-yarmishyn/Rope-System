@@ -75,17 +75,16 @@ where every `xi` is a rope node in world space.
 
 For each segment, the solver currently performs these steps:
 
-1. `SyncSegmentAnchors`
-   Updates the first and last anchor positions from their attached actors or anchor sockets.
-2. `SyncAttachedRedirectNodes`
-   Rebuilds redirect node world positions from the cached local offset if the redirect is attached to a moving actor.
-3. `MoveSegment`
+1. `SyncSegmentNodes`
+   Updates every actor-backed node in one pass:
+   anchors read their current anchor transform, redirects rebuild world space from the cached actor-local offset.
+2. `MoveSegment`
    Placeholder hook for future movement or constraint logic. It is currently a no-op.
-4. `WrapSegment`
+3. `WrapSegment`
    Detects when a straight rope line now intersects geometry and inserts new nodes.
-5. `RelaxSegment`
+4. `RelaxSegment`
    Removes redirect nodes that are no longer needed.
-6. `SplitSegmentOnAnchors`
+5. `SplitSegmentOnAnchors`
    Splits a segment into smaller segments if a new anchor node appeared inside it.
 
 After solving, the component broadcasts `OnSegmentsSet` so Blueprint or other systems can react to the latest rope layout.
@@ -94,11 +93,14 @@ After solving, the component broadcasts `OnSegmentsSet` so Blueprint or other sy
 
 Wrapping is evaluated on each neighboring node pair `(A, B)` of the current polyline.
 
-- The solver traces the current span `A -> B`.
-- If that trace has no blocking hit, the span remains valid and no topology change is needed.
-- If the hit actor implements `URayRopeInterface`, the solver inserts a new `Anchor` node instead of a redirect.
-- Otherwise, the solver inserts one or more `Redirect` nodes so that one blocked straight span becomes several valid spans.
-- The current span is always compared against the corresponding reference span `(A_ref, B_ref)` captured before the tick. This lets the solver distinguish "this rope was already wrapped" from "this rope became wrapped during this frame".
+The wrap solver can therefore be expressed as four rules:
+
+1. If the current span `A -> B` is clear, keep the span unchanged.
+2. If the current hit actor implements `URayRopeInterface`, insert one `Anchor` node.
+3. If the current span is blocked and the reference span `(A_ref, B_ref)` was already blocked too, build redirect nodes directly from the current front/back hits.
+4. If the current span is blocked but the reference span was still clear, binary-search the transition from reference to current and build redirect nodes from that boundary hit pair.
+
+The current span is always compared against the corresponding reference span `(A_ref, B_ref)` captured before the tick. This is what distinguishes "already wrapped" from "became wrapped this frame".
 
 ### Boundary Search
 If the reference span was not colliding but the current span is, the solver searches for the transition between a valid line and an invalid line.
@@ -116,6 +118,12 @@ This gives a stable approximation of the moment when the rope span first starts 
 
 ### Redirect Placement
 Redirect nodes are placed from collision geometry rather than from accumulated physics impulses.
+
+Redirect creation also collapses to three rules:
+
+1. If only a front hit exists, create one redirect from the front hit plane.
+2. If both front and back hits exist and their normals are not nearly collinear, create one corner redirect from the plane intersection.
+3. If both hits exist and their normals are nearly collinear, create two redirects ordered along the rope span.
 
 For a single surface hit, the solver projects the valid rope span onto the hit plane. With
 
@@ -156,16 +164,16 @@ When a redirect attaches to an actor, its local offset is cached. On later ticks
 
 `RelaxSegment` removes redirect nodes that are no longer required.
 
-A redirect node `P1` between neighbors `P0` and `P2` is considered removable only if the direct shortcut `P0 -> P2` is not blocked. After that visibility test passes, the solver applies geometric simplification rules.
+A redirect node `P1` between neighbors `P0` and `P2` is removable under one precondition and four follow-up rules:
 
-- If `|P1 - P0|` or `|P2 - P1|` is smaller than `RelaxSolverEpsilon`, the bend is degenerate and the node is removed.
-- Let `v1 = normalize(P1 - P0)` and `v2 = normalize(P2 - P1)`. If `|v1 x v2|^2 <= RelaxCollinearEpsilon^2`, the bend is almost collinear and the node is removed.
-- The closest point on the supporting line through `P0` and `P2` is computed as
-  `Q = P0 + t * (P2 - P0)`
-  where
-  `t = dot(P1 - P0, P2 - P0) / |P2 - P0|^2`.
-- If `|P1 - Q| <= RelaxSolverEpsilon`, the redirect is already close enough to the straight line and is removed.
-- Otherwise the solver traces `P1 -> Q`. If that path is unobstructed, the redirect can collapse safely back toward the straight line and is removed.
+1. If the direct shortcut `P0 -> P2` is blocked, keep the node.
+2. If `|P1 - P0|` or `|P2 - P1|` is smaller than `RelaxSolverEpsilon`, the bend is degenerate and the node is removed.
+3. Let `v1 = normalize(P1 - P0)` and `v2 = normalize(P2 - P1)`. If `|v1 x v2|^2 <= RelaxCollinearEpsilon^2`, the bend is almost collinear and the node is removed.
+4. The closest point on the supporting line through `P0` and `P2` is computed as
+   `Q = P0 + t * (P2 - P0)`
+   where
+   `t = dot(P1 - P0, P2 - P0) / |P2 - P0|^2`.
+5. If `|P1 - Q| <= RelaxSolverEpsilon`, the redirect is already close enough to the straight line and is removed. Otherwise the solver traces `P1 -> Q`; if that path is unobstructed, the redirect can collapse safely back toward the straight line and is removed.
 
 This keeps the rope from accumulating stale bend points after geometry is cleared or after anchors move.
 

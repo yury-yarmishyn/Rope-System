@@ -195,7 +195,7 @@ This ensures every segment stays local to a single anchor-to-anchor path.
 
 ## Collision Rules
 
-All rope traces use `ECC_Visibility`.
+All rope traces use `TraceChannel`, which defaults to `ECC_Visibility`.
 
 - The rope component owner is ignored.
 - Anchor actors already present in the segment are ignored.

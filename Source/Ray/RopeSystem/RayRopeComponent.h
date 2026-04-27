@@ -10,6 +10,10 @@ struct FCollisionQueryParams;
 struct FHitResult;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSegmentsSet);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRopeSolveStarted);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRopeSolveEnded);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRopeSegmentBroken, int32, SegmentIndex);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRopeBroken);
 
 UCLASS(Blueprintable, ClassGroup=(Custom), meta=(BlueprintSpawnableComponent))
 class RAY_API URayRopeComponent : public UActorComponent
@@ -17,26 +21,50 @@ class RAY_API URayRopeComponent : public UActorComponent
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults", meta = (ClampMin = "0", UIMin = "0"))
 	int32 MaxBinarySearchIteration = 4;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float WrapSolverEpsilon = 1.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float RopePhysicalRadius = 2.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
 	bool bAllowWrapOnMovableObjects = true;
 
-	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
+	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
+
+	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float RelaxSolverEpsilon = 1.f;
 
-	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver")
+	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
 	float RelaxCollinearEpsilon = 0.01f;
 
 	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
 	FOnSegmentsSet OnSegmentsSet;
+
+	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
+	FOnRopeSolveStarted OnRopeSolveStarted;
+
+	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
+	FOnRopeSolveEnded OnRopeSolveEnded;
+
+	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
+	FOnRopeSegmentBroken OnRopeSegmentBroken;
+
+	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
+	FOnRopeBroken OnRopeBroken;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Dynamic")
+	bool bShouldSolveRope = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rope|Dynamic")
+	float RopeLength = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Constraint", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float MaxRopeLength = 0.f;
 
 	URayRopeComponent();
 
@@ -44,6 +72,18 @@ public:
 		float DeltaTime,
 		ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
+
+	UFUNCTION(BlueprintCallable, Category = "Rope|Lifecycle")
+	bool TryStartRopeSolve(const TArray<AActor*>& AnchorActors);
+
+	UFUNCTION(BlueprintCallable, Category = "Rope|Lifecycle")
+	void EndRopeSolve();
+
+	UFUNCTION(BlueprintCallable, Category = "Rope|Lifecycle")
+	bool BreakRopeOnSegment(int32 SegmentIndex);
+
+	UFUNCTION(BlueprintCallable, Category = "Rope|Lifecycle")
+	void BreakRope();
 
 	UFUNCTION(BlueprintCallable, Category = "Rope|Getters")
 	const TArray<FRayRopeSegment>& GetSegments() const;
@@ -54,6 +94,22 @@ public:
 protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Dynamic")
 	TArray<FRayRopeSegment> Segments;
+
+	bool TryBuildBaseSegments(
+		const TArray<AActor*>& AnchorActors,
+		TArray<FRayRopeSegment>& OutSegments) const;
+
+	bool EnforceMaxRopeLength();
+	bool TryGetOwnerTerminalNodes(
+		const FRayRopeNode*& OutOwnerNode,
+		const FRayRopeNode*& OutAdjacentNode) const;
+	bool ClampOwnerAnchorToMaxRopeLength(
+		const FRayRopeNode& OwnerNode,
+		const FRayRopeNode& AdjacentNode) const;
+	void RemoveOwnerOutwardVelocity(const FVector& OutwardDirection) const;
+
+	void RefreshRopeLength(bool bSyncSegmentNodes);
+	float CalculateRopeLength() const;
 
 	void SolveRope();
 	void SyncSegmentNodes(FRayRopeSegment& Segment) const;

@@ -1,11 +1,14 @@
 #pragma once
 
-#include "CoreMinimal.h"
-#include "RayRopeTypes.h"
+#include "RayRopeInternalTypes.h"
 
 class AActor;
-class UWorld;
-struct FCollisionQueryParams;
+
+struct FRayRopeRelaxSettings
+{
+	float RelaxSolverEpsilon = 0.f;
+	float RelaxCollinearEpsilon = 0.f;
+};
 
 struct FRayRopeTopology
 {

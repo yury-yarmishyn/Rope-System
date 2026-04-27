@@ -1,7 +1,6 @@
 #pragma once
 
-#include "CoreMinimal.h"
-#include "RayRopeTypes.h"
+#include "RayRopeInternalTypes.h"
 
 struct FHitResult;
 

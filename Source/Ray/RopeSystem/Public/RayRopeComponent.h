@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "Engine/EngineTypes.h"
 #include "RayRopeTypes.h"
 #include "RayRopeComponent.generated.h"
 

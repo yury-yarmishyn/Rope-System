@@ -1,12 +1,7 @@
 #pragma once
 
-#include "CoreMinimal.h"
-#include "Engine/EngineTypes.h"
-#include "RayRopeTypes.h"
+#include "RayRopeInternalTypes.h"
 
-class AActor;
-class UWorld;
-struct FCollisionQueryParams;
 struct FHitResult;
 
 struct FRayRopeTrace

@@ -1,10 +1,21 @@
 #pragma once
 
-#include "CoreMinimal.h"
-#include "RayRopeTypes.h"
+#include "RayRopeInternalTypes.h"
 
 class AActor;
-struct FHitResult;
+
+struct FRayWrapRedirectInput
+{
+	FRayRopeSpan ValidSpan;
+	FHitResult FrontSurfaceHit;
+	FHitResult BackSurfaceHit;
+	bool bHasBackSurfaceHit = false;
+
+	const FHitResult* GetBackSurfaceHitPtr() const
+	{
+		return bHasBackSurfaceHit ? &BackSurfaceHit : nullptr;
+	}
+};
 
 struct FRayRopeWrapSolver
 {

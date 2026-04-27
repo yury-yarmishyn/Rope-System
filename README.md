@@ -84,8 +84,11 @@ For each segment, the solver currently performs these steps:
    Detects when a straight rope line now intersects geometry and inserts new nodes.
 4. `RelaxSegment`
    Removes redirect nodes that are no longer needed.
-5. `SplitSegmentOnAnchors`
-   Splits a segment into smaller segments if a new anchor node appeared inside it.
+
+After all segments finish their per-segment solve, the component runs:
+
+5. `SplitSegmentsOnAnchors`
+   Splits any segment that gained a new anchor node into multiple smaller segments.
 
 After solving, the component broadcasts `OnSegmentsSet` so Blueprint or other systems can react to the latest rope layout.
 
@@ -179,7 +182,7 @@ This keeps the rope from accumulating stale bend points after geometry is cleare
 
 ## Segment Splitting
 
-If `WrapSegment` inserts an anchor actor into the middle of a segment, `SplitSegmentOnAnchors` converts the single segment into multiple segments.
+If `WrapSegment` inserts an anchor actor into the middle of a segment, the post-pass `SplitSegmentsOnAnchors` converts that single segment into multiple segments.
 
 Example:
 

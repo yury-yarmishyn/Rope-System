@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/EngineTypes.h"
 #include "RayRopeTypes.generated.h"
 
 class AActor;
@@ -66,6 +67,19 @@ struct FRayRopeSpan
 	bool IsDegenerate(float Epsilon) const
 	{
 		return !IsValid() || GetLengthSquared() <= FMath::Square(Epsilon);
+	}
+};
+
+struct FRayWrapRedirectInput
+{
+	FRayRopeSpan ValidSpan;
+	FHitResult FrontSurfaceHit;
+	FHitResult BackSurfaceHit;
+	bool bHasBackSurfaceHit = false;
+
+	const FHitResult* GetBackSurfaceHitPtr() const
+	{
+		return bHasBackSurfaceHit ? &BackSurfaceHit : nullptr;
 	}
 };
 

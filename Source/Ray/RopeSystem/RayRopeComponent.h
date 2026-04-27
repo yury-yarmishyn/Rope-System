@@ -66,6 +66,7 @@ protected:
 	void MoveSegment(FRayRopeSegment& Segment) const;
 	void WrapSegment(FRayRopeSegment& Segment, const FRayRopeSegment& ReferenceSegment) const;
 	void RelaxSegment(FRayRopeSegment& Segment) const;
+	void SplitSegmentsOnAnchors();
 	void SplitSegmentOnAnchors(int32 SegmentIndex);
 
 	bool TryGetSegmentSpan(
@@ -85,10 +86,7 @@ protected:
 		const FRayRopeSpan& ReferenceSpan,
 		const FCollisionQueryParams& QueryParams,
 		const FHitResult& FrontSurfaceHit,
-		FRayRopeSpan& OutValidSpan,
-		FHitResult& OutResolvedFrontSurfaceHit,
-		FHitResult& OutResolvedBackSurfaceHit,
-		const FHitResult*& OutBackSurfaceHit) const;
+		FRayWrapRedirectInput& OutInput) const;
 
 	bool TryFindBoundaryHit(
 		const FRayRopeSpan& ValidSpan,

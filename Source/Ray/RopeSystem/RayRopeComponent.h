@@ -71,8 +71,7 @@ protected:
 	bool TryGetSegmentSpan(
 		const FRayRopeSegment& Segment,
 		int32 NodeIndex,
-		const FRayRopeNode*& OutStartNode,
-		const FRayRopeNode*& OutEndNode) const;
+		FRayRopeSpan& OutSpan) const;
 
 	bool BuildWrapNodes(
 		int32 NodeIndex,
@@ -82,49 +81,40 @@ protected:
 		TArray<FRayRopeNode>& OutNodes) const;
 
 	bool TryBuildWrapRedirectInputs(
-		const FRayRopeNode& CurrentStartNode,
-		const FRayRopeNode& CurrentEndNode,
-		const FRayRopeNode& ReferenceStartNode,
-		const FRayRopeNode& ReferenceEndNode,
+		const FRayRopeSpan& CurrentSpan,
+		const FRayRopeSpan& ReferenceSpan,
 		const FCollisionQueryParams& QueryParams,
 		const FHitResult& FrontSurfaceHit,
-		const FRayRopeNode*& OutValidStartNode,
-		const FRayRopeNode*& OutValidEndNode,
+		FRayRopeSpan& OutValidSpan,
 		FHitResult& OutResolvedFrontSurfaceHit,
 		FHitResult& OutResolvedBackSurfaceHit,
 		const FHitResult*& OutBackSurfaceHit) const;
 
 	bool TryFindBoundaryHit(
-		const FRayRopeNode& ValidStartNode,
-		const FRayRopeNode& ValidEndNode,
-		const FRayRopeNode& InvalidStartNode,
-		const FRayRopeNode& InvalidEndNode,
+		const FRayRopeSpan& ValidSpan,
+		const FRayRopeSpan& InvalidSpan,
 		const FCollisionQueryParams& QueryParams,
 		FHitResult& SurfaceHit) const;
 
 	FRayRopeNode CreateAnchorNode(AActor* AnchorActor) const;
 
 	FRayRopeNode CreateRedirectNode(
-		const FRayRopeNode& ValidStartNode,
-		const FRayRopeNode& ValidEndNode,
+		const FRayRopeSpan& ValidSpan,
 		const FHitResult& FrontSurfaceHit,
 		const FHitResult* BackSurfaceHit) const;
 
 	void AppendRedirectNodes(
-		const FRayRopeNode& ValidStartNode,
-		const FRayRopeNode& ValidEndNode,
+		const FRayRopeSpan& ValidSpan,
 		const FHitResult& FrontSurfaceHit,
 		const FHitResult* BackSurfaceHit,
 		TArray<FRayRopeNode>& OutNodes) const;
 
 	FVector CalculateProjectedPointOnHitPlane(
-		const FRayRopeNode& ValidStartNode,
-		const FRayRopeNode& ValidEndNode,
+		const FRayRopeSpan& ValidSpan,
 		const FHitResult& SurfaceHit) const;
 
 	FVector CalculateRedirectLocation(
-		const FRayRopeNode& ValidStartNode,
-		const FRayRopeNode& ValidEndNode,
+		const FRayRopeSpan& ValidSpan,
 		const FHitResult& FrontSurfaceHit,
 		const FHitResult* BackSurfaceHit) const;
 
@@ -159,8 +149,7 @@ protected:
 		FCollisionQueryParams& QueryParams) const;
 
 	bool TryTraceSpan(
-		const FRayRopeNode& StartNode,
-		const FRayRopeNode& EndNode,
+		const FRayRopeSpan& Span,
 		const FCollisionQueryParams& QueryParams,
 		FHitResult& SurfaceHit) const;
 

@@ -33,6 +33,42 @@ struct FRayRopeNode
 	FVector AttachActorOffset = FVector::ZeroVector;
 };
 
+struct FRayRopeSpan
+{
+	const FRayRopeNode* StartNode = nullptr;
+	const FRayRopeNode* EndNode = nullptr;
+
+	bool IsValid() const
+	{
+		return StartNode != nullptr && EndNode != nullptr;
+	}
+
+	FVector GetStartLocation() const
+	{
+		return StartNode != nullptr ? StartNode->WorldLocation : FVector::ZeroVector;
+	}
+
+	FVector GetEndLocation() const
+	{
+		return EndNode != nullptr ? EndNode->WorldLocation : FVector::ZeroVector;
+	}
+
+	FVector GetDirection() const
+	{
+		return IsValid() ? GetEndLocation() - GetStartLocation() : FVector::ZeroVector;
+	}
+
+	float GetLengthSquared() const
+	{
+		return GetDirection().SizeSquared();
+	}
+
+	bool IsDegenerate(float Epsilon) const
+	{
+		return !IsValid() || GetLengthSquared() <= FMath::Square(Epsilon);
+	}
+};
+
 USTRUCT(BlueprintType)
 struct FRayRopeSegment
 {

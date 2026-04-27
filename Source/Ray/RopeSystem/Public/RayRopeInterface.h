@@ -4,6 +4,8 @@
 #include "UObject/Interface.h"
 #include "RayRopeInterface.generated.h"
 
+class USceneComponent;
+
 UINTERFACE(BlueprintType)
 class URayRopeInterface : public UInterface
 {

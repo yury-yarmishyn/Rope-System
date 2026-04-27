@@ -11,22 +11,18 @@ struct FHitResult;
 
 struct FRayRopeTrace
 {
-	static void BuildTraceQueryParams(
-		const AActor* OwnerActor,
+	static FRayRopeTraceContext MakeTraceContext(
+		const FRayRopeTraceSettings& TraceSettings,
 		const FRayRopeSegment& Segment,
-		FCollisionQueryParams& QueryParams);
+		FCollisionQueryParams QueryParams);
 
 	static bool TryTraceSpan(
-		UWorld* World,
-		ECollisionChannel TraceChannel,
+		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeSpan& Span,
-		const FCollisionQueryParams& QueryParams,
 		FHitResult& SurfaceHit);
 
 	static bool TryTraceBlockingHit(
-		UWorld* World,
-		ECollisionChannel TraceChannel,
-		const FCollisionQueryParams& QueryParams,
+		const FRayRopeTraceContext& TraceContext,
 		const FVector& StartLocation,
 		const FVector& EndLocation,
 		FHitResult& SurfaceHit);
@@ -39,4 +35,10 @@ struct FRayRopeTrace
 		const FVector& StartLocation,
 		const FVector& EndLocation,
 		const FHitResult& SurfaceHit);
+
+private:
+	static void BuildTraceQueryParams(
+		const FRayRopeTraceSettings& TraceSettings,
+		const FRayRopeSegment& Segment,
+		FCollisionQueryParams& QueryParams);
 };

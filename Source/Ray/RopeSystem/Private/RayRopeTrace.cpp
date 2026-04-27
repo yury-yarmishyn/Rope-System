@@ -15,16 +15,29 @@ bool IsInitialTraceHit(const FHitResult& Hit)
 }
 }
 
+FRayRopeTraceContext FRayRopeTrace::MakeTraceContext(
+	const FRayRopeTraceSettings& TraceSettings,
+	const FRayRopeSegment& Segment,
+	FCollisionQueryParams QueryParams)
+{
+	FRayRopeTraceContext TraceContext;
+	TraceContext.World = TraceSettings.World;
+	TraceContext.TraceChannel = TraceSettings.TraceChannel;
+	TraceContext.QueryParams = MoveTemp(QueryParams);
+	BuildTraceQueryParams(TraceSettings, Segment, TraceContext.QueryParams);
+	return TraceContext;
+}
+
 void FRayRopeTrace::BuildTraceQueryParams(
-	const AActor* OwnerActor,
+	const FRayRopeTraceSettings& TraceSettings,
 	const FRayRopeSegment& Segment,
 	FCollisionQueryParams& QueryParams)
 {
 	QueryParams.bReturnPhysicalMaterial = false;
 
-	if (OwnerActor != nullptr)
+	if (TraceSettings.OwnerActor != nullptr)
 	{
-		QueryParams.AddIgnoredActor(OwnerActor);
+		QueryParams.AddIgnoredActor(TraceSettings.OwnerActor);
 	}
 
 	for (const FRayRopeNode& Node : Segment.Nodes)
@@ -39,10 +52,8 @@ void FRayRopeTrace::BuildTraceQueryParams(
 }
 
 bool FRayRopeTrace::TryTraceSpan(
-	UWorld* World,
-	ECollisionChannel TraceChannel,
+	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeSpan& Span,
-	const FCollisionQueryParams& QueryParams,
 	FHitResult& SurfaceHit)
 {
 	if (!Span.IsValid())
@@ -52,35 +63,31 @@ bool FRayRopeTrace::TryTraceSpan(
 	}
 
 	return TryTraceBlockingHit(
-		World,
-		TraceChannel,
-		QueryParams,
+		TraceContext,
 		Span.GetStartLocation(),
 		Span.GetEndLocation(),
 		SurfaceHit);
 }
 
 bool FRayRopeTrace::TryTraceBlockingHit(
-	UWorld* World,
-	ECollisionChannel TraceChannel,
-	const FCollisionQueryParams& QueryParams,
+	const FRayRopeTraceContext& TraceContext,
 	const FVector& StartLocation,
 	const FVector& EndLocation,
 	FHitResult& SurfaceHit)
 {
 	SurfaceHit = FHitResult();
 
-	if (!IsValid(World))
+	if (!IsValid(TraceContext.World))
 	{
 		return false;
 	}
 
-	World->LineTraceSingleByChannel(
+	TraceContext.World->LineTraceSingleByChannel(
 		SurfaceHit,
 		StartLocation,
 		EndLocation,
-		TraceChannel,
-		QueryParams);
+		TraceContext.TraceChannel,
+		TraceContext.QueryParams);
 
 	if (!SurfaceHit.bBlockingHit)
 	{
@@ -97,12 +104,12 @@ bool FRayRopeTrace::TryTraceBlockingHit(
 	}
 
 	FHitResult FallbackHit;
-	World->LineTraceSingleByChannel(
+	TraceContext.World->LineTraceSingleByChannel(
 		FallbackHit,
 		EndLocation,
 		StartLocation,
-		TraceChannel,
-		QueryParams);
+		TraceContext.TraceChannel,
+		TraceContext.QueryParams);
 
 	if (FallbackHit.bBlockingHit)
 	{

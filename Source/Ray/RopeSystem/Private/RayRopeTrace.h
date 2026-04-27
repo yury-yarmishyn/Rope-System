@@ -8,7 +8,6 @@ struct FRayRopeTrace
 {
 	static FRayRopeTraceContext MakeTraceContext(
 		const FRayRopeTraceSettings& TraceSettings,
-		const FRayRopeSegment& Segment,
 		FCollisionQueryParams QueryParams);
 
 	static bool TryTraceSpan(
@@ -34,6 +33,5 @@ struct FRayRopeTrace
 private:
 	static void BuildTraceQueryParams(
 		const FRayRopeTraceSettings& TraceSettings,
-		const FRayRopeSegment& Segment,
 		FCollisionQueryParams& QueryParams);
 };

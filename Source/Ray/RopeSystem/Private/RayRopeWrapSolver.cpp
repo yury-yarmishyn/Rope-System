@@ -25,7 +25,6 @@ void FRayRopeWrapSolver::WrapSegment(
 
 	const FRayRopeTraceContext TraceContext = FRayRopeTrace::MakeTraceContext(
 		TraceSettings,
-		Segment,
 		FCollisionQueryParams(SCENE_QUERY_STAT(RayRopeTrace), true));
 
 	TArray<TPair<int32, FRayRopeNode>> PendingInsertions;

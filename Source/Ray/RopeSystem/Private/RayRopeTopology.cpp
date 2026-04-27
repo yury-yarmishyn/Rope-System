@@ -48,7 +48,6 @@ bool FRayRopeTopology::TryBuildBaseSegments(
 
 		const FRayRopeTraceContext TraceContext = FRayRopeTrace::MakeTraceContext(
 			TraceSettings,
-			BaseSegment,
 			FCollisionQueryParams(SCENE_QUERY_STAT(RayRopeStartTrace), true));
 
 		FHitResult SurfaceHit;
@@ -112,7 +111,6 @@ void FRayRopeTopology::RelaxSegment(
 
 	const FRayRopeTraceContext TraceContext = FRayRopeTrace::MakeTraceContext(
 		TraceSettings,
-		Segment,
 		FCollisionQueryParams(SCENE_QUERY_STAT(RayRopeRelaxTrace), true));
 
 	for (int32 NodeIndex = 1; NodeIndex < Segment.Nodes.Num() - 1;)
@@ -149,11 +147,8 @@ bool FRayRopeTopology::CanRemoveRelaxNode(
 	const FRayRopeNode& NextNode)
 {
 	FHitResult SurfaceHit;
-	if (FRayRopeTrace::TryTraceBlockingHit(
-		TraceContext,
-		PrevNode.WorldLocation,
-		NextNode.WorldLocation,
-		SurfaceHit))
+	const FRayRopeSpan ShortcutSpan{&PrevNode, &NextNode};
+	if (FRayRopeTrace::TryTraceSpan(TraceContext, ShortcutSpan, SurfaceHit))
 	{
 		return false;
 	}

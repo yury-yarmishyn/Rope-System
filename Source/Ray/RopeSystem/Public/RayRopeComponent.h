@@ -55,7 +55,7 @@ public:
 	float WrapSolverEpsilon = 1.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults", meta = (ClampMin = "0.0", UIMin = "0.0"))
-	float RopePhysicalRadius = 2.f;
+	float WrapOffset = 2.f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
 	bool bAllowWrapOnMovableObjects = true;

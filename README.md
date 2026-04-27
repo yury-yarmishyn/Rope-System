@@ -2,6 +2,20 @@
 
 This project contains a custom rope logic component for Unreal Engine. The rope is modeled as a chain of logical nodes grouped into segments and treated as a piecewise-linear path in world space. The component does not render the rope by itself and it does not run a full physics simulation. Its job is to keep rope topology consistent while anchors move and while the rope wraps or unwraps around world geometry. At the moment, the system can stably process up to 100 rope points simultaneously without a major performance drop.
 
+## Project Snapshot
+
+- Unreal Engine `5.7` C++ project.
+- The main gameplay system in this repository is `URayRopeComponent` in `Source/Ray/RopeSystem`.
+- Prototype content lives under `/Game/Ray`, including the sample map `/Game/Ray/Levels/Lvl_FirstPerson` and player assets under `/Game/Ray/Characters/Player`.
+- The runtime module currently depends on `GameplayAbilities`, `GameplayTags`, `GameplayTasks`, `EnhancedInput`, `StateTreeModule`, and `CommonUI`.
+
+## Getting Started
+
+1. Open `Ray.uproject` in Unreal Engine `5.7`.
+2. Let Unreal build the `Ray` module, or generate project files and build from your IDE first.
+3. Open `/Game/Ray/Levels/Lvl_FirstPerson` as the working prototype map.
+4. Inspect `/Game/Ray/Characters/Player/BPC_RopeComponent` and `/Game/Ray/MovingActor` for prototype-side usage examples.
+
 ## Problem Statement
 
 For gameplay rope systems in Unreal Engine, two popular starting points are `CableComponent` and chains built from `PhysicsConstraint`.
@@ -22,9 +36,59 @@ This system is gameplay-first. Its main purpose is to provide reliable rope topo
 
 ## Current Limitations
 
-The current implementation can attach redirect nodes to moving actors by caching a local offset and reconstructing the node position every tick.
+- Redirect nodes on moving actors currently follow their host actor by caching an actor-local offset and reconstructing world space every tick. This keeps moving-object support usable during prototyping, but it is expected to be redesigned later.
+- `TryStartRopeSolve` only succeeds when every consecutive anchor pair is valid, distinct, and initially unobstructed. The system does not bootstrap from a rope that already starts wrapped around geometry.
+- `MaxRopeLength` only constrains the component owner when that owner is already one of the terminal anchor actors in the rope.
+- The component owns topology only. Rendering, visual rope mesh generation, sag simulation, and advanced physical motion are still external responsibilities.
 
-This is a temporary solution. It exists to keep moving-object support usable during gameplay prototyping, but it is expected to be redesigned in a later iteration.
+## Integration Workflow
+
+The component is intended to be driven from gameplay code or Blueprint.
+
+1. Add `URayRopeComponent` to the actor that should own the rope state.
+2. Treat the rope owner as one terminal anchor if you want `MaxRopeLength` to clamp that actor's movement.
+3. Make anchor actors implement `URayRopeInterface` when the rope should attach to a specific component or socket. If the interface is absent or returns invalid data, the actor location is used.
+4. Start the rope with `TryStartRopeSolve` and an ordered anchor list.
+5. Use `OnSegmentsSet` or `GetSegments()` to drive your own rendering layer such as a spline, mesh, Niagara ribbon, or custom rope renderer.
+6. Stop or alter rope state with `EndRopeSolve`, `BreakRopeOnSegment`, `BreakRope`, or `SetSegments`.
+
+## Runtime API
+
+`URayRopeComponent` exposes the following gameplay-facing behavior:
+
+- `TryStartRopeSolve(const TArray<AActor*>& AnchorActors)`
+  Builds one base segment per consecutive anchor pair and starts rope solving.
+- `EndRopeSolve()`
+  Stops wrap and relax updates, but the component still refreshes rope length and can still enforce `MaxRopeLength` on tick.
+- `BreakRopeOnSegment(int32 SegmentIndex)` and `BreakRope()`
+  Remove part or all of the rope and broadcast break-related events.
+- `GetSegments()` and `SetSegments(...)`
+  Expose direct access to the routed rope topology.
+- `RopeLength`
+  Stores the current total polyline length across all segments.
+- `MaxRopeLength`
+  When greater than zero, clamps the owner actor back toward the adjacent rope node and removes outward velocity if the rope stretches past the limit.
+- Dispatchers
+  `OnSegmentsSet`, `OnRopeSolveStarted`, `OnRopeSolveEnded`, `OnRopeSegmentBroken`, and `OnRopeBroken`.
+
+## Solver Settings
+
+The most important editor-exposed settings on the component are:
+
+- `MaxBinarySearchIteration`
+  Controls how many refinement steps are used when the rope transitions from a clear span to a blocked span.
+- `WrapSolverEpsilon`
+  Controls wrap boundary tolerance and several geometric fallback thresholds.
+- `WrapOffset`
+  Pushes redirect nodes away from hit surfaces so the rope stays outside collision.
+- `bAllowWrapOnMovableObjects`
+  Allows or rejects redirect creation on movable or physics-simulating geometry.
+- `TraceChannel`
+  Selects the collision channel used by all rope traces. The default is `ECC_Visibility`.
+- `RelaxSolverEpsilon` and `RelaxCollinearEpsilon`
+  Control when stale redirect nodes are considered close enough to collapse.
+- `MaxRopeLength`
+  Disables owner clamping at `0` and enables it for any positive value.
 
 ## Core Concepts
 
@@ -145,7 +209,7 @@ then clamps `t` to `[0, 1]` and places the redirect at
 `R = A + t * (B - A)`.
 
 - If the denominator is nearly zero, the line is almost parallel to the plane and the solver falls back to the closer rope endpoint.
-- The final redirect is offset by `normalize(n) * RopePhysicalRadius` so the rope stays outside the surface.
+- The final redirect is offset by `normalize(n) * WrapOffset` so the rope stays outside the surface.
 
 For front and back hits, the solver tries to build one corner node from the intersection of two hit planes.
 
@@ -159,7 +223,7 @@ For front and back hits, the solver tries to build one corner node from the inte
   where `u = B - A` and `s` is clamped to `[0, 1]`.
 - If the closest distance to the intersection line is larger than `WrapSolverEpsilon`, the corner fit is rejected and the solver falls back to the single-plane solution.
 - If the normals are nearly parallel, the solver creates two redirect nodes instead of one corner node.
-- For the two-plane case, the outward offset direction is `normalize(n1 + n2) * RopePhysicalRadius`. If `n1 + n2` is nearly zero, it falls back to `n1`.
+- For the two-plane case, the outward offset direction is `normalize(n1 + n2) * WrapOffset`. If `n1 + n2` is nearly zero, it falls back to `n1`.
 
 When a redirect attaches to an actor, its local offset is cached. On later ticks the node is reconstructed from that local-space offset, which lets the rope follow moving geometry.
 
@@ -199,6 +263,7 @@ All rope traces use `TraceChannel`, which defaults to `ECC_Visibility`.
 
 - The rope component owner is ignored.
 - Anchor actors already present in the segment are ignored.
+- Redirect creation can reject movable or physics-simulating geometry when `bAllowWrapOnMovableObjects` is disabled.
 - Initial penetration hits are retried from the opposite direction to reduce false positives.
 
 ## Practical Summary

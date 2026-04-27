@@ -13,66 +13,42 @@ bool IsInitialTraceHit(const FHitResult& Hit)
 	return Hit.bStartPenetrating ||
 		(Hit.Distance <= KINDA_SMALL_NUMBER && Hit.Time <= KINDA_SMALL_NUMBER);
 }
-}
 
-FRayRopeTraceContext FRayRopeTrace::MakeTraceContext(
-	const FRayRopeTraceSettings& TraceSettings,
-	const FRayRopeSegment& Segment,
-	FCollisionQueryParams QueryParams)
+const AActor* GetIgnoredEndpointActor(const FRayRopeNode* Node)
 {
-	FRayRopeTraceContext TraceContext;
-	TraceContext.World = TraceSettings.World;
-	TraceContext.TraceChannel = TraceSettings.TraceChannel;
-	TraceContext.QueryParams = MoveTemp(QueryParams);
-	BuildTraceQueryParams(TraceSettings, Segment, TraceContext.QueryParams);
-	return TraceContext;
+	return Node != nullptr &&
+		Node->NodeType == ENodeType::Anchor &&
+		IsValid(Node->AttachActor)
+		? Node->AttachActor
+		: nullptr;
 }
 
-void FRayRopeTrace::BuildTraceQueryParams(
-	const FRayRopeTraceSettings& TraceSettings,
-	const FRayRopeSegment& Segment,
-	FCollisionQueryParams& QueryParams)
-{
-	QueryParams.bReturnPhysicalMaterial = false;
-
-	if (TraceSettings.OwnerActor != nullptr)
-	{
-		QueryParams.AddIgnoredActor(TraceSettings.OwnerActor);
-	}
-
-	for (const FRayRopeNode& Node : Segment.Nodes)
-	{
-		if (Node.NodeType != ENodeType::Anchor || !IsValid(Node.AttachActor))
-		{
-			continue;
-		}
-
-		QueryParams.AddIgnoredActor(Node.AttachActor);
-	}
-}
-
-bool FRayRopeTrace::TryTraceSpan(
+FCollisionQueryParams BuildSpanQueryParams(
 	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeSpan& Span,
-	FHitResult& SurfaceHit)
+	const FRayRopeSpan& Span)
 {
-	if (!Span.IsValid())
+	FCollisionQueryParams QueryParams = TraceContext.QueryParams;
+
+	const AActor* StartAttachActor = GetIgnoredEndpointActor(Span.StartNode);
+	if (StartAttachActor != nullptr)
 	{
-		SurfaceHit = FHitResult();
-		return false;
+		QueryParams.AddIgnoredActor(StartAttachActor);
 	}
 
-	return TryTraceBlockingHit(
-		TraceContext,
-		Span.GetStartLocation(),
-		Span.GetEndLocation(),
-		SurfaceHit);
+	const AActor* EndAttachActor = GetIgnoredEndpointActor(Span.EndNode);
+	if (EndAttachActor != nullptr && EndAttachActor != StartAttachActor)
+	{
+		QueryParams.AddIgnoredActor(EndAttachActor);
+	}
+
+	return QueryParams;
 }
 
-bool FRayRopeTrace::TryTraceBlockingHit(
+bool TryTraceBlockingHitWithQueryParams(
 	const FRayRopeTraceContext& TraceContext,
 	const FVector& StartLocation,
 	const FVector& EndLocation,
+	const FCollisionQueryParams& QueryParams,
 	FHitResult& SurfaceHit)
 {
 	SurfaceHit = FHitResult();
@@ -87,7 +63,7 @@ bool FRayRopeTrace::TryTraceBlockingHit(
 		StartLocation,
 		EndLocation,
 		TraceContext.TraceChannel,
-		TraceContext.QueryParams);
+		QueryParams);
 
 	if (!SurfaceHit.bBlockingHit)
 	{
@@ -96,7 +72,7 @@ bool FRayRopeTrace::TryTraceBlockingHit(
 
 	const bool bAcceptForwardHit =
 		!IsInitialTraceHit(SurfaceHit) ||
-		IsTraceEnteringHitSurface(StartLocation, EndLocation, SurfaceHit);
+		FRayRopeTrace::IsTraceEnteringHitSurface(StartLocation, EndLocation, SurfaceHit);
 
 	if (bAcceptForwardHit)
 	{
@@ -109,13 +85,13 @@ bool FRayRopeTrace::TryTraceBlockingHit(
 		EndLocation,
 		StartLocation,
 		TraceContext.TraceChannel,
-		TraceContext.QueryParams);
+		QueryParams);
 
 	if (FallbackHit.bBlockingHit)
 	{
 		const bool bAcceptFallbackHit =
 			!IsInitialTraceHit(FallbackHit) ||
-			IsTraceEnteringHitSurface(
+			FRayRopeTrace::IsTraceEnteringHitSurface(
 				EndLocation,
 				StartLocation,
 				FallbackHit);
@@ -129,6 +105,64 @@ bool FRayRopeTrace::TryTraceBlockingHit(
 
 	SurfaceHit = FHitResult();
 	return false;
+}
+}
+
+FRayRopeTraceContext FRayRopeTrace::MakeTraceContext(
+	const FRayRopeTraceSettings& TraceSettings,
+	FCollisionQueryParams QueryParams)
+{
+	FRayRopeTraceContext TraceContext;
+	TraceContext.World = TraceSettings.World;
+	TraceContext.TraceChannel = TraceSettings.TraceChannel;
+	TraceContext.QueryParams = MoveTemp(QueryParams);
+	BuildTraceQueryParams(TraceSettings, TraceContext.QueryParams);
+	return TraceContext;
+}
+
+void FRayRopeTrace::BuildTraceQueryParams(
+	const FRayRopeTraceSettings& TraceSettings,
+	FCollisionQueryParams& QueryParams)
+{
+	QueryParams.bReturnPhysicalMaterial = false;
+
+	if (TraceSettings.OwnerActor != nullptr)
+	{
+		QueryParams.AddIgnoredActor(TraceSettings.OwnerActor);
+	}
+}
+
+bool FRayRopeTrace::TryTraceSpan(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeSpan& Span,
+	FHitResult& SurfaceHit)
+{
+	if (!Span.IsValid())
+	{
+		SurfaceHit = FHitResult();
+		return false;
+	}
+
+	return TryTraceBlockingHitWithQueryParams(
+		TraceContext,
+		Span.GetStartLocation(),
+		Span.GetEndLocation(),
+		BuildSpanQueryParams(TraceContext, Span),
+		SurfaceHit);
+}
+
+bool FRayRopeTrace::TryTraceBlockingHit(
+	const FRayRopeTraceContext& TraceContext,
+	const FVector& StartLocation,
+	const FVector& EndLocation,
+	FHitResult& SurfaceHit)
+{
+	return TryTraceBlockingHitWithQueryParams(
+		TraceContext,
+		StartLocation,
+		EndLocation,
+		TraceContext.QueryParams,
+		SurfaceHit);
 }
 
 bool FRayRopeTrace::CanUseHitForRedirectWrap(

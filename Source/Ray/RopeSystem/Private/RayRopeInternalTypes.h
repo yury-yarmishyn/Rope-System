@@ -63,5 +63,5 @@ struct FRayRopeWrapSettings
 	int32 MaxBinarySearchIteration = 0;
 	float WrapSolverEpsilon = 0.f;
 	float GeometryCollinearEpsilon = 0.f;
-	float RopePhysicalRadius = 0.f;
+	float WrapOffset = 0.f;
 };

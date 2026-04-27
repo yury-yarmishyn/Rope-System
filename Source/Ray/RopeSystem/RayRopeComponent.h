@@ -26,6 +26,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
 	float RopePhysicalRadius = 2.f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
+	bool bAllowWrapOnMovableObjects = true;
+
 	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver")
 	float RelaxSolverEpsilon = 1.f;
 
@@ -52,25 +55,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Dynamic")
 	TArray<FRayRopeSegment> Segments;
 
-	struct FRayNodeSpan
-	{
-		const FRayRopeNode* Start = nullptr;
-		const FRayRopeNode* End = nullptr;
-	};
-
-	struct FRayWrapRedirectInputs
-	{
-		FRayNodeSpan ValidSpan;
-		const FHitResult* FrontSurfaceHit = nullptr;
-		const FHitResult* BackSurfaceHit = nullptr;
-	};
-
-	struct FPendingWrapInsertion
-	{
-		int32 InsertIndex = INDEX_NONE;
-		FRayRopeNode Node;
-	};
-
 	void SolveRope();
 	void SyncSegmentNodes(FRayRopeSegment& Segment) const;
 	void SyncNode(FRayRopeNode& Node) const;
@@ -84,9 +68,11 @@ protected:
 	void RelaxSegment(FRayRopeSegment& Segment) const;
 	void SplitSegmentOnAnchors(int32 SegmentIndex);
 
-	FRayNodeSpan MakeSegmentSpan(const FRayRopeSegment& Segment, int32 NodeIndex) const;
-	FRayNodeSpan ReverseSpan(const FRayNodeSpan& Span) const;
-	bool IsValidSpan(const FRayNodeSpan& Span) const;
+	bool TryGetSegmentSpan(
+		const FRayRopeSegment& Segment,
+		int32 NodeIndex,
+		const FRayRopeNode*& OutStartNode,
+		const FRayRopeNode*& OutEndNode) const;
 
 	bool BuildWrapNodes(
 		int32 NodeIndex,
@@ -96,31 +82,51 @@ protected:
 		TArray<FRayRopeNode>& OutNodes) const;
 
 	bool TryBuildWrapRedirectInputs(
-		const FRayNodeSpan& CurrentSpan,
-		const FRayNodeSpan& ReferenceSpan,
+		const FRayRopeNode& CurrentStartNode,
+		const FRayRopeNode& CurrentEndNode,
+		const FRayRopeNode& ReferenceStartNode,
+		const FRayRopeNode& ReferenceEndNode,
 		const FCollisionQueryParams& QueryParams,
 		const FHitResult& FrontSurfaceHit,
+		const FRayRopeNode*& OutValidStartNode,
+		const FRayRopeNode*& OutValidEndNode,
 		FHitResult& OutResolvedFrontSurfaceHit,
 		FHitResult& OutResolvedBackSurfaceHit,
-		FRayWrapRedirectInputs& OutRedirectInputs) const;
+		const FHitResult*& OutBackSurfaceHit) const;
 
 	bool TryFindBoundaryHit(
-		const FRayNodeSpan& ValidSpan,
-		const FRayNodeSpan& InvalidSpan,
+		const FRayRopeNode& ValidStartNode,
+		const FRayRopeNode& ValidEndNode,
+		const FRayRopeNode& InvalidStartNode,
+		const FRayRopeNode& InvalidEndNode,
 		const FCollisionQueryParams& QueryParams,
 		FHitResult& SurfaceHit) const;
 
 	FRayRopeNode CreateAnchorNode(AActor* AnchorActor) const;
 
-	FRayRopeNode CreateRedirectNode(const FRayWrapRedirectInputs& RedirectInputs) const;
+	FRayRopeNode CreateRedirectNode(
+		const FRayRopeNode& ValidStartNode,
+		const FRayRopeNode& ValidEndNode,
+		const FHitResult& FrontSurfaceHit,
+		const FHitResult* BackSurfaceHit) const;
 
-	void AppendRedirectNodes(const FRayWrapRedirectInputs& RedirectInputs, TArray<FRayRopeNode>& OutNodes) const;
+	void AppendRedirectNodes(
+		const FRayRopeNode& ValidStartNode,
+		const FRayRopeNode& ValidEndNode,
+		const FHitResult& FrontSurfaceHit,
+		const FHitResult* BackSurfaceHit,
+		TArray<FRayRopeNode>& OutNodes) const;
 
 	FVector CalculateProjectedPointOnHitPlane(
-		const FRayNodeSpan& ValidSpan,
+		const FRayRopeNode& ValidStartNode,
+		const FRayRopeNode& ValidEndNode,
 		const FHitResult& SurfaceHit) const;
 
-	FVector CalculateRedirectLocation(const FRayWrapRedirectInputs& RedirectInputs) const;
+	FVector CalculateRedirectLocation(
+		const FRayRopeNode& ValidStartNode,
+		const FRayRopeNode& ValidEndNode,
+		const FHitResult& FrontSurfaceHit,
+		const FHitResult* BackSurfaceHit) const;
 
 	FVector CalculateRedirectOffset(
 		const FHitResult& FrontSurfaceHit,
@@ -153,7 +159,8 @@ protected:
 		FCollisionQueryParams& QueryParams) const;
 
 	bool TryTraceSpan(
-		const FRayNodeSpan& Span,
+		const FRayRopeNode& StartNode,
+		const FRayRopeNode& EndNode,
 		const FCollisionQueryParams& QueryParams,
 		FHitResult& SurfaceHit) const;
 
@@ -163,11 +170,13 @@ protected:
 		const FVector& EndLocation,
 		FHitResult& SurfaceHit) const;
 
+	bool CanUseHitForRedirectWrap(const FHitResult& SurfaceHit) const;
+
 	bool CanInsertWrapNode(
 		int32 InsertIndex,
 		const FRayRopeSegment& Segment,
 		const FRayRopeNode& Candidate,
-		const TArray<FPendingWrapInsertion>& PendingInsertions) const;
+		const TArray<TPair<int32, FRayRopeNode>>& PendingInsertions) const;
 
 	bool AreEquivalentWrapNodes(
 		const FRayRopeNode& FirstNode,

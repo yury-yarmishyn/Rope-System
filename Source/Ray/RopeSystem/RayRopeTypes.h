@@ -41,3 +41,5 @@ struct FRayRopeSegment
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Segment")
 	TArray<FRayRopeNode> Nodes;
 };
+
+

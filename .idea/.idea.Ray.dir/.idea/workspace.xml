@@ -14,27 +14,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="2dea0756-89ad-4b16-a6af-321e29acfa71" name="Changes" comment="">
-      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeComponent.cpp" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeTopology.cpp" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeTopology.h" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeTypes.cpp" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeWrapGeometry.cpp" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeWrapGeometry.h" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeWrapSolver.cpp" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeWrapSolver.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_Player.uasset" beforeDir="false" afterPath="$PROJECT_DIR$/Content/Ray/Characters/Player/BP_Player.uasset" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/Ray.Build.cs" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/Ray.Build.cs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeComponent.cpp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeComponent.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Public/RayRopeComponent.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeInterface.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeInterface.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeInterface.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Public/RayRopeInterface.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeNodeResolver.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeNodeResolver.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeNodeResolver.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeNodeResolver.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeTopology.cpp" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeTopology.h" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeTrace.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeTrace.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeTrace.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeTrace.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/RayRopeTypes.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Public/RayRopeTypes.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeComponent.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Private/RayRopeComponent.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Source/Ray/RopeSystem/Public/RayRopeComponent.h" beforeDir="false" afterPath="$PROJECT_DIR$/Source/Ray/RopeSystem/Public/RayRopeComponent.h" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

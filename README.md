@@ -143,7 +143,7 @@ For each segment, the solver currently performs these steps:
    Updates every actor-backed node in one pass:
    anchors read their current anchor transform, redirects rebuild world space from the cached actor-local offset.
 2. `MoveSegment`
-   Placeholder hook for future movement or constraint logic. It is currently a no-op.
+   Delegates to `FRayRopeMoveSolver` as the dedicated movement pass. It is currently a no-op placeholder for future movement or constraint logic.
 3. `WrapSegment`
    Detects when a straight rope line now intersects geometry and inserts new nodes.
 4. `RelaxSegment`

@@ -106,9 +106,6 @@ protected:
 	void SolveSegment(FRayRopeSegment& Segment) const;
 	void FinalizeSolve();
 
-	// TODO: Keep this in the component until movement/constraint solving becomes a real solver pass.
-	void MoveSegment(FRayRopeSegment& Segment) const;
-
 	// Owner rope-length clamping stays on the component because it manipulates owner movement and physics state.
 	bool EnforceMaxRopeLength();
 	bool TryGetOwnerTerminalNodes(

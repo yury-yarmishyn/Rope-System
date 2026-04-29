@@ -30,10 +30,12 @@ void URayRopeComponent::TickComponent(
 
 	if (!bShouldSolveRope)
 	{
-		RefreshRopeLength(true);
+		SyncRopeNodes();
+		RefreshRopeLength();
 		if (EnforceMaxRopeLength())
 		{
-			RefreshRopeLength(true);
+			SyncRopeNodes();
+			RefreshRopeLength();
 			OnSegmentsSet.Broadcast();
 		}
 
@@ -44,7 +46,8 @@ void URayRopeComponent::TickComponent(
 
 	if (EnforceMaxRopeLength())
 	{
-		RefreshRopeLength(true);
+		SyncRopeNodes();
+		RefreshRopeLength();
 		OnSegmentsSet.Broadcast();
 	}
 }
@@ -55,6 +58,7 @@ bool URayRopeComponent::TryStartRopeSolve(const TArray<AActor*>& AnchorActors)
 	TraceSettings.World = GetWorld();
 	TraceSettings.OwnerActor = GetOwner();
 	TraceSettings.TraceChannel = TraceChannel;
+	TraceSettings.bTraceComplex = bTraceComplex;
 
 	TArray<FRayRopeSegment> BaseSegments;
 	if (!FRayRopeTopology::TryBuildBaseSegments(
@@ -84,7 +88,8 @@ void URayRopeComponent::EndRopeSolve()
 		return;
 	}
 
-	RefreshRopeLength(true);
+	SyncRopeNodes();
+	RefreshRopeLength();
 	bShouldSolveRope = false;
 	OnRopeSolveEnded.Broadcast();
 }
@@ -105,7 +110,7 @@ bool URayRopeComponent::BreakRopeOnSegment(int32 SegmentIndex)
 		bShouldSolveRope = false;
 	}
 
-	RefreshRopeLength(false);
+	RefreshRopeLength();
 	OnSegmentsSet.Broadcast();
 	OnRopeSegmentBroken.Broadcast(SegmentIndex);
 
@@ -133,7 +138,7 @@ void URayRopeComponent::BreakRope()
 
 	Segments.Reset();
 	bShouldSolveRope = false;
-	RefreshRopeLength(false);
+	RefreshRopeLength();
 
 	if (bHadSegments)
 	{
@@ -156,7 +161,8 @@ const TArray<FRayRopeSegment>& URayRopeComponent::GetSegments() const
 void URayRopeComponent::SetSegments(TArray<FRayRopeSegment> NewSegments)
 {
 	Segments = MoveTemp(NewSegments);
-	RefreshRopeLength(true);
+	SyncRopeNodes();
+	RefreshRopeLength();
 	OnSegmentsSet.Broadcast();
 }
 
@@ -320,16 +326,16 @@ void URayRopeComponent::RemoveOwnerOutwardVelocity(const FVector& OutwardDirecti
 	}
 }
 
-void URayRopeComponent::RefreshRopeLength(bool bSyncSegmentNodes)
+void URayRopeComponent::SyncRopeNodes()
 {
-	if (bSyncSegmentNodes)
+	for (FRayRopeSegment& Segment : Segments)
 	{
-		for (FRayRopeSegment& Segment : Segments)
-		{
-			FRayRopeNodeResolver::SyncSegmentNodes(Segment);
-		}
+		FRayRopeNodeResolver::SyncSegmentNodes(Segment);
 	}
+}
 
+void URayRopeComponent::RefreshRopeLength()
+{
 	RopeLength = FRayRopeTopology::CalculateRopeLength(Segments);
 }
 
@@ -360,6 +366,7 @@ void URayRopeComponent::SolveSegment(FRayRopeSegment& Segment) const
 	TraceSettings.World = GetWorld();
 	TraceSettings.OwnerActor = GetOwner();
 	TraceSettings.TraceChannel = TraceChannel;
+	TraceSettings.bTraceComplex = bTraceComplex;
 
 	FRayRopeWrapSettings WrapSettings;
 	WrapSettings.bAllowWrapOnMovableObjects = bAllowWrapOnMovableObjects;
@@ -394,6 +401,6 @@ void URayRopeComponent::SolveSegment(FRayRopeSegment& Segment) const
 void URayRopeComponent::FinalizeSolve()
 {
 	FRayRopeTopology::SplitSegmentsOnAnchors(Segments);
-	RefreshRopeLength(false);
+	RefreshRopeLength();
 	OnSegmentsSet.Broadcast();
 }

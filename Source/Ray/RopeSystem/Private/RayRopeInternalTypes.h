@@ -48,12 +48,14 @@ struct FRayRopeTraceSettings
 	UWorld* World = nullptr;
 	const AActor* OwnerActor = nullptr;
 	ECollisionChannel TraceChannel = ECC_Visibility;
+	bool bTraceComplex = false;
 };
 
 struct FRayRopeTraceContext
 {
 	UWorld* World = nullptr;
 	ECollisionChannel TraceChannel = ECC_Visibility;
+	bool bTraceComplex = false;
 	FCollisionQueryParams QueryParams;
 };
 

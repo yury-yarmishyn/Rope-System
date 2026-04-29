@@ -63,6 +63,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
 	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
+	bool bTraceComplex = false;
+
 	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float RelaxSolverEpsilon = 1.f;
 
@@ -101,7 +104,8 @@ protected:
 	TArray<FRayRopeSegment> Segments;
 
 	// Component-owned orchestration stays here; the algorithmic passes live in plain C++ helpers.
-	void RefreshRopeLength(bool bSyncSegmentNodes);
+	void SyncRopeNodes();
+	void RefreshRopeLength();
 	void SolveRope();
 	void SolveSegment(FRayRopeSegment& Segment) const;
 	void FinalizeSolve();

@@ -3,7 +3,7 @@
 #include "CollisionQueryParams.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
-#include "RayRopeNodeResolver.h"
+#include "Solvers/RayRopeNodeResolver.h"
 #include "RayRopeTrace.h"
 #include "RayRopeWrapGeometry.h"
 

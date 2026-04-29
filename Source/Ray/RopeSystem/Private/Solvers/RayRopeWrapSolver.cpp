@@ -3,9 +3,9 @@
 #include "CollisionQueryParams.h"
 #include "RayRopeInterface.h"
 #include "RayRopeNodeResolver.h"
-#include "RayRopeTopology.h"
-#include "RayRopeTrace.h"
-#include "RayRopeWrapGeometry.h"
+#include "Helpers/RayRopeTopology.h"
+#include "Helpers/RayRopeTrace.h"
+#include "Helpers/RayRopeWrapGeometry.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 

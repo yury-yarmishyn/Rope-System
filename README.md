@@ -67,7 +67,7 @@ The component is intended to be driven from gameplay code or Blueprint.
 - `RopeLength`
   Stores the current total polyline length across all segments.
 - `MaxRopeLength`
-  When greater than zero, clamps the owner actor back toward the adjacent rope node and removes outward velocity if the rope stretches past the limit.
+  When greater than zero, `FRayRopePhysicsSolver` clamps the owner actor back toward the adjacent rope node and removes outward velocity if the rope stretches past the limit.
 - Dispatchers
   `OnSegmentsSet`, `OnRopeSolveStarted`, `OnRopeSolveEnded`, `OnRopeSegmentBroken`, and `OnRopeBroken`.
 
@@ -153,6 +153,8 @@ After all segments finish their per-segment solve, the component runs:
 
 5. `SplitSegmentsOnAnchors`
    Splits any segment that gained a new anchor node into multiple smaller segments.
+
+After topology solving, `FRayRopePhysicsSolver` applies owner-side `MaxRopeLength` clamping when needed. If physics clamping moves the owner actor, the component syncs node positions and refreshes rope length again.
 
 After solving, the component broadcasts `OnSegmentsSet` so Blueprint or other systems can react to the latest rope layout.
 

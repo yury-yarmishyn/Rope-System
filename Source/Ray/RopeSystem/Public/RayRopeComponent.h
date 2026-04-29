@@ -108,15 +108,6 @@ protected:
 	void RefreshRopeLength();
 	void SolveRope();
 	void SolveSegment(FRayRopeSegment& Segment) const;
+	bool SolveRopePhysics() const;
 	void FinalizeSolve();
-
-	// Owner rope-length clamping stays on the component because it manipulates owner movement and physics state.
-	bool EnforceMaxRopeLength();
-	bool TryGetOwnerTerminalNodes(
-		const FRayRopeNode*& OutOwnerNode,
-		const FRayRopeNode*& OutAdjacentNode) const;
-	bool ClampOwnerAnchorToMaxRopeLength(
-		const FRayRopeNode& OwnerNode,
-		const FRayRopeNode& AdjacentNode) const;
-	void RemoveOwnerOutwardVelocity(const FVector& OutwardDirection) const;
 };

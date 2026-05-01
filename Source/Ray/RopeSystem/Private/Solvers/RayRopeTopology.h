@@ -22,6 +22,11 @@ struct FRayRopeTopology
 		int32 NodeIndex,
 		FRayRopeSpan& OutSpan);
 
+	static bool TryGetNodeSpan(
+		TConstArrayView<FRayRopeNode> Nodes,
+		int32 NodeIndex,
+		FRayRopeSpan& OutSpan);
+
 	static float CalculateRopeLength(const TArray<FRayRopeSegment>& Segments);
 
 	static void RelaxSegment(

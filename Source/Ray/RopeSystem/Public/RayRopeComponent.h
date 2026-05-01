@@ -100,7 +100,7 @@ public:
 
 protected:
 	// The component owns the runtime rope state that helper passes operate on.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Dynamic")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Dynamic")
 	TArray<FRayRopeSegment> Segments;
 
 	// Component-owned orchestration stays here; the algorithmic passes live in plain C++ helpers.
@@ -108,6 +108,6 @@ protected:
 	void RefreshRopeLength();
 	void SolveRope();
 	void SolveSegment(FRayRopeSegment& Segment) const;
-	bool SolveRopePhysics() const;
+	bool ApplyRopeRuntimeEffects();
 	void FinalizeSolve();
 };

@@ -3,7 +3,7 @@
 #include "Solvers/RayRopeMoveSolver.h"
 #include "Solvers/RayRopeNodeResolver.h"
 #include "Solvers/RayRopePhysicsSolver.h"
-#include "Helpers/RayRopeTopology.h"
+#include "Solvers/RayRopeTopology.h"
 #include "Solvers/RayRopeWrapSolver.h"
 
 URayRopeComponent::URayRopeComponent()
@@ -29,7 +29,7 @@ void URayRopeComponent::TickComponent(
 	{
 		SyncRopeNodes();
 		RefreshRopeLength();
-		if (SolveRopePhysics())
+		if (ApplyRopeRuntimeEffects())
 		{
 			SyncRopeNodes();
 			RefreshRopeLength();
@@ -41,12 +41,14 @@ void URayRopeComponent::TickComponent(
 
 	SolveRope();
 
-	if (SolveRopePhysics())
+	const bool bAppliedRuntimeEffects = ApplyRopeRuntimeEffects();
+	if (bAppliedRuntimeEffects)
 	{
 		SyncRopeNodes();
 		RefreshRopeLength();
-		OnSegmentsSet.Broadcast();
 	}
+
+	OnSegmentsSet.Broadcast();
 }
 
 bool URayRopeComponent::TryStartRopeSolve(const TArray<AActor*>& AnchorActors)
@@ -176,7 +178,7 @@ void URayRopeComponent::RefreshRopeLength()
 	RopeLength = FRayRopeTopology::CalculateRopeLength(Segments);
 }
 
-bool URayRopeComponent::SolveRopePhysics() const
+bool URayRopeComponent::ApplyRopeRuntimeEffects()
 {
 	FRayRopePhysicsSettings PhysicsSettings;
 	PhysicsSettings.RopeLength = RopeLength;
@@ -232,24 +234,13 @@ void URayRopeComponent::SolveSegment(FRayRopeSegment& Segment) const
 
 	const FRayRopeSegment ReferenceSegment = Segment;
 	FRayRopeNodeResolver::SyncSegmentNodes(Segment);
-	FRayRopeMoveSolver::MoveSegment(
-		TraceSettings,
-		MoveSettings,
-		Segment);
-	FRayRopeWrapSolver::WrapSegment(
-		TraceSettings,
-		WrapSettings,
-		Segment,
-		ReferenceSegment);
-	FRayRopeTopology::RelaxSegment(
-		TraceSettings,
-		RelaxSettings,
-		Segment);
+	FRayRopeMoveSolver::MoveSegment(TraceSettings, MoveSettings, Segment);
+	FRayRopeWrapSolver::WrapSegment(TraceSettings, WrapSettings, Segment, ReferenceSegment);
+	FRayRopeTopology::RelaxSegment(TraceSettings, RelaxSettings, Segment);
 }
 
 void URayRopeComponent::FinalizeSolve()
 {
 	FRayRopeTopology::SplitSegmentsOnAnchors(Segments);
 	RefreshRopeLength();
-	OnSegmentsSet.Broadcast();
 }

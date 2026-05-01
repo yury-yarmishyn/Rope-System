@@ -17,7 +17,7 @@ bool IsInitialTraceHit(const FHitResult& Hit)
 const AActor* GetIgnoredEndpointActor(const FRayRopeNode* Node)
 {
 	return Node != nullptr &&
-		Node->NodeType == ENodeType::Anchor &&
+		Node->NodeType == ERayRopeNodeType::Anchor &&
 		IsValid(Node->AttachActor)
 		? Node->AttachActor
 		: nullptr;
@@ -25,17 +25,16 @@ const AActor* GetIgnoredEndpointActor(const FRayRopeNode* Node)
 
 FCollisionQueryParams BuildSpanQueryParams(
 	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeSpan& Span)
+	const AActor* StartAttachActor,
+	const AActor* EndAttachActor)
 {
 	FCollisionQueryParams QueryParams = TraceContext.QueryParams;
 
-	const AActor* StartAttachActor = GetIgnoredEndpointActor(Span.StartNode);
 	if (StartAttachActor != nullptr)
 	{
 		QueryParams.AddIgnoredActor(StartAttachActor);
 	}
 
-	const AActor* EndAttachActor = GetIgnoredEndpointActor(Span.EndNode);
 	if (EndAttachActor != nullptr && EndAttachActor != StartAttachActor)
 	{
 		QueryParams.AddIgnoredActor(EndAttachActor);
@@ -53,7 +52,8 @@ bool TryTraceBlockingHitWithQueryParams(
 {
 	SurfaceHit = FHitResult();
 
-	if (!IsValid(TraceContext.World))
+	if (!IsValid(TraceContext.World) ||
+		StartLocation.Equals(EndLocation, KINDA_SMALL_NUMBER))
 	{
 		return false;
 	}
@@ -139,17 +139,29 @@ bool FRayRopeTrace::TryTraceSpan(
 	const FRayRopeSpan& Span,
 	FHitResult& SurfaceHit)
 {
-	if (!Span.IsValid())
+	if (!Span.IsValid() || Span.IsDegenerate(KINDA_SMALL_NUMBER))
 	{
 		SurfaceHit = FHitResult();
 		return false;
+	}
+
+	const AActor* StartAttachActor = GetIgnoredEndpointActor(Span.StartNode);
+	const AActor* EndAttachActor = GetIgnoredEndpointActor(Span.EndNode);
+	if (StartAttachActor == nullptr && EndAttachActor == nullptr)
+	{
+		return TryTraceBlockingHitWithQueryParams(
+			TraceContext,
+			Span.GetStartLocation(),
+			Span.GetEndLocation(),
+			TraceContext.QueryParams,
+			SurfaceHit);
 	}
 
 	return TryTraceBlockingHitWithQueryParams(
 		TraceContext,
 		Span.GetStartLocation(),
 		Span.GetEndLocation(),
-		BuildSpanQueryParams(TraceContext, Span),
+		BuildSpanQueryParams(TraceContext, StartAttachActor, EndAttachActor),
 		SurfaceHit);
 }
 

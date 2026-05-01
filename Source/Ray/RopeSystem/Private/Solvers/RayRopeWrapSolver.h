@@ -17,6 +17,9 @@ struct FRayWrapRedirectInput
 	}
 };
 
+using FRayRopeWrapNodeBuffer = TArray<FRayRopeNode, TInlineAllocator<2>>;
+using FRayRopePendingInsertionBuffer = TArray<TPair<int32, FRayRopeNode>, TInlineAllocator<8>>;
+
 struct FRayRopeWrapSolver
 {
 	static void WrapSegment(
@@ -30,9 +33,9 @@ private:
 		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeWrapSettings& WrapSettings,
 		int32 NodeIndex,
-		const FRayRopeSegment& CurrentSegment,
-		const FRayRopeSegment& ReferenceSegment,
-		TArray<FRayRopeNode>& OutNodes);
+		TConstArrayView<FRayRopeNode> CurrentNodes,
+		TConstArrayView<FRayRopeNode> ReferenceNodes,
+		FRayRopeWrapNodeBuffer& OutNodes);
 
 	static bool TryBuildWrapRedirectInputs(
 		const FRayRopeTraceContext& TraceContext,
@@ -58,7 +61,7 @@ private:
 	static void AppendRedirectNodes(
 		const FRayRopeWrapSettings& WrapSettings,
 		const FRayWrapRedirectInput& RedirectInput,
-		TArray<FRayRopeNode>& OutNodes);
+		FRayRopeWrapNodeBuffer& OutNodes);
 
 	static AActor* ResolveRedirectAttachActor(
 		const FHitResult& FrontSurfaceHit,
@@ -69,7 +72,7 @@ private:
 		int32 InsertIndex,
 		const FRayRopeSegment& Segment,
 		const FRayRopeNode& Candidate,
-		const TArray<TPair<int32, FRayRopeNode>>& PendingInsertions);
+		const FRayRopePendingInsertionBuffer& PendingInsertions);
 
 	static bool AreEquivalentWrapNodes(
 		const FRayRopeWrapSettings& WrapSettings,

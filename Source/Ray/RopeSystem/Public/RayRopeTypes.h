@@ -4,11 +4,12 @@
 #include "RayRopeTypes.generated.h"
 
 class AActor;
+class USceneComponent;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogRayRope, Log, All);
 
 UENUM(Blueprintable)
-enum class ENodeType : uint8
+enum class ERayRopeNodeType : uint8
 {
 	Anchor,
 	Redirect
@@ -20,7 +21,7 @@ struct FRayRopeNode
 	GENERATED_BODY()
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Node")
-	ENodeType NodeType = ENodeType::Redirect;
+	ERayRopeNodeType NodeType = ERayRopeNodeType::Redirect;
 	
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Node")
 	FVector WorldLocation = FVector::ZeroVector;
@@ -33,6 +34,12 @@ struct FRayRopeNode
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Node")
 	FVector AttachActorOffset = FVector::ZeroVector;
+
+	UPROPERTY(Transient)
+	USceneComponent* CachedAnchorComponent = nullptr;
+
+	UPROPERTY(Transient)
+	FName CachedAnchorSocketName = NAME_None;
 };
 
 USTRUCT(BlueprintType)

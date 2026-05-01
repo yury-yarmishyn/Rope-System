@@ -54,7 +54,7 @@ bool FRayRopePhysicsSolver::TryGetOwnerTerminalNodes(
 	if (FirstSegment.Nodes.Num() >= 2)
 	{
 		const FRayRopeNode& FirstNode = FirstSegment.Nodes[0];
-		if (FirstNode.NodeType == ENodeType::Anchor &&
+		if (FirstNode.NodeType == ERayRopeNodeType::Anchor &&
 			FirstNode.AttachActor == OwnerActor)
 		{
 			OutOwnerNode = &FirstNode;
@@ -68,7 +68,7 @@ bool FRayRopePhysicsSolver::TryGetOwnerTerminalNodes(
 	{
 		const int32 LastNodeIndex = LastSegment.Nodes.Num() - 1;
 		const FRayRopeNode& LastNode = LastSegment.Nodes[LastNodeIndex];
-		if (LastNode.NodeType == ENodeType::Anchor &&
+		if (LastNode.NodeType == ERayRopeNodeType::Anchor &&
 			LastNode.AttachActor == OwnerActor)
 		{
 			OutOwnerNode = &LastNode;

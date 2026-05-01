@@ -4,8 +4,8 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Solvers/RayRopeNodeResolver.h"
-#include "RayRopeTrace.h"
-#include "RayRopeWrapGeometry.h"
+#include "Helpers/RayRopeTrace.h"
+#include "Helpers/RayRopeWrapGeometry.h"
 
 bool FRayRopeTopology::TryBuildBaseSegments(
 	const FRayRopeTraceSettings& TraceSettings,
@@ -20,6 +20,9 @@ bool FRayRopeTopology::TryBuildBaseSegments(
 	}
 
 	OutSegments.Reserve(AnchorActors.Num() - 1);
+	const FRayRopeTraceContext TraceContext = FRayRopeTrace::MakeTraceContext(
+		TraceSettings,
+		FCollisionQueryParams(SCENE_QUERY_STAT(RayRopeStartTrace)));
 
 	for (int32 AnchorIndex = 0; AnchorIndex < AnchorActors.Num() - 1; ++AnchorIndex)
 	{
@@ -46,10 +49,6 @@ bool FRayRopeTopology::TryBuildBaseSegments(
 			return false;
 		}
 
-		const FRayRopeTraceContext TraceContext = FRayRopeTrace::MakeTraceContext(
-			TraceSettings,
-			FCollisionQueryParams(SCENE_QUERY_STAT(RayRopeStartTrace)));
-
 		FHitResult SurfaceHit;
 		if (FRayRopeTrace::TryTraceSpan(TraceContext, BaseSpan, SurfaceHit))
 		{
@@ -68,16 +67,24 @@ bool FRayRopeTopology::TryGetSegmentSpan(
 	int32 NodeIndex,
 	FRayRopeSpan& OutSpan)
 {
+	return TryGetNodeSpan(Segment.Nodes, NodeIndex, OutSpan);
+}
+
+bool FRayRopeTopology::TryGetNodeSpan(
+	TConstArrayView<FRayRopeNode> Nodes,
+	int32 NodeIndex,
+	FRayRopeSpan& OutSpan)
+{
 	OutSpan = FRayRopeSpan();
 
-	if (!Segment.Nodes.IsValidIndex(NodeIndex) || !Segment.Nodes.IsValidIndex(NodeIndex + 1))
+	if (NodeIndex < 0 || NodeIndex + 1 >= Nodes.Num())
 	{
 		return false;
 	}
 
 	OutSpan = FRayRopeSpan{
-		&Segment.Nodes[NodeIndex],
-		&Segment.Nodes[NodeIndex + 1]
+		&Nodes[NodeIndex],
+		&Nodes[NodeIndex + 1]
 	};
 	return true;
 }
@@ -116,7 +123,7 @@ void FRayRopeTopology::RelaxSegment(
 	for (int32 NodeIndex = 1; NodeIndex < Segment.Nodes.Num() - 1;)
 	{
 		const FRayRopeNode& CurrentNode = Segment.Nodes[NodeIndex];
-		if (CurrentNode.NodeType != ENodeType::Redirect)
+		if (CurrentNode.NodeType != ERayRopeNodeType::Redirect)
 		{
 			++NodeIndex;
 			continue;
@@ -214,7 +221,7 @@ void FRayRopeTopology::SplitSegmentOnAnchors(TArray<FRayRopeSegment>& Segments, 
 	{
 		const bool bShouldSplit =
 			NodeIndex == Nodes.Num() - 1 ||
-			Nodes[NodeIndex].NodeType == ENodeType::Anchor;
+			Nodes[NodeIndex].NodeType == ERayRopeNodeType::Anchor;
 
 		if (!bShouldSplit)
 		{

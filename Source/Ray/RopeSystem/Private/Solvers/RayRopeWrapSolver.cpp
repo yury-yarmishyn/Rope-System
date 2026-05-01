@@ -3,7 +3,7 @@
 #include "CollisionQueryParams.h"
 #include "RayRopeInterface.h"
 #include "RayRopeNodeResolver.h"
-#include "Helpers/RayRopeTopology.h"
+#include "Solvers/RayRopeTopology.h"
 #include "Helpers/RayRopeTrace.h"
 #include "Helpers/RayRopeWrapGeometry.h"
 #include "Engine/World.h"
@@ -27,18 +27,18 @@ void FRayRopeWrapSolver::WrapSegment(
 		TraceSettings,
 		FCollisionQueryParams(SCENE_QUERY_STAT(RayRopeTrace)));
 
-	TArray<TPair<int32, FRayRopeNode>> PendingInsertions;
+	FRayRopePendingInsertionBuffer PendingInsertions;
 	PendingInsertions.Reserve((ComparableNodeCount - 1) * 2);
 
 	for (int32 NodeIndex = 0; NodeIndex < ComparableNodeCount - 1; ++NodeIndex)
 	{
-		TArray<FRayRopeNode> NewNodes;
+		FRayRopeWrapNodeBuffer NewNodes;
 		if (!BuildWrapNodes(
 			TraceContext,
 			WrapSettings,
 			NodeIndex,
-			Segment,
-			ReferenceSegment,
+			Segment.Nodes,
+			ReferenceSegment.Nodes,
 			NewNodes))
 		{
 			continue;
@@ -61,6 +61,11 @@ void FRayRopeWrapSolver::WrapSegment(
 		}
 	}
 
+	if (PendingInsertions.Num() > 0)
+	{
+		Segment.Nodes.Reserve(Segment.Nodes.Num() + PendingInsertions.Num());
+	}
+
 	for (int32 PendingIndex = PendingInsertions.Num() - 1; PendingIndex >= 0; --PendingIndex)
 	{
 		TPair<int32, FRayRopeNode>& PendingInsertion = PendingInsertions[PendingIndex];
@@ -72,17 +77,17 @@ bool FRayRopeWrapSolver::BuildWrapNodes(
 	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeWrapSettings& WrapSettings,
 	int32 NodeIndex,
-	const FRayRopeSegment& CurrentSegment,
-	const FRayRopeSegment& ReferenceSegment,
-	TArray<FRayRopeNode>& OutNodes)
+	TConstArrayView<FRayRopeNode> CurrentNodes,
+	TConstArrayView<FRayRopeNode> ReferenceNodes,
+	FRayRopeWrapNodeBuffer& OutNodes)
 {
 	OutNodes.Reset();
 
 	FRayRopeSpan CurrentSpan;
 	FRayRopeSpan ReferenceSpan;
 
-	if (!FRayRopeTopology::TryGetSegmentSpan(CurrentSegment, NodeIndex, CurrentSpan) ||
-		!FRayRopeTopology::TryGetSegmentSpan(ReferenceSegment, NodeIndex, ReferenceSpan))
+	if (!FRayRopeTopology::TryGetNodeSpan(CurrentNodes, NodeIndex, CurrentSpan) ||
+		!FRayRopeTopology::TryGetNodeSpan(ReferenceNodes, NodeIndex, ReferenceSpan))
 	{
 		return false;
 	}
@@ -212,16 +217,17 @@ bool FRayRopeWrapSolver::TryFindBoundaryHit(
 	FRayRopeNode LastInvalidEndNode = *InvalidSpan.EndNode;
 	FRayRopeSpan LastValidSpan{&LastValidStartNode, &LastValidEndNode};
 	FRayRopeSpan LastInvalidSpan{&LastInvalidStartNode, &LastInvalidEndNode};
+	const float WrapSolverEpsilonSquared = FMath::Square(WrapSettings.WrapSolverEpsilon);
 
 	for (int32 Iteration = 0; Iteration < WrapSettings.MaxBinarySearchIteration; ++Iteration)
 	{
 		const bool bStartCloseEnough =
-			FVector::Dist(LastValidSpan.GetStartLocation(), LastInvalidSpan.GetStartLocation()) <=
-			WrapSettings.WrapSolverEpsilon;
+			FVector::DistSquared(LastValidSpan.GetStartLocation(), LastInvalidSpan.GetStartLocation()) <=
+			WrapSolverEpsilonSquared;
 
 		const bool bEndCloseEnough =
-			FVector::Dist(LastValidSpan.GetEndLocation(), LastInvalidSpan.GetEndLocation()) <=
-			WrapSettings.WrapSolverEpsilon;
+			FVector::DistSquared(LastValidSpan.GetEndLocation(), LastInvalidSpan.GetEndLocation()) <=
+			WrapSolverEpsilonSquared;
 
 		if (bStartCloseEnough && bEndCloseEnough)
 		{
@@ -258,7 +264,7 @@ FRayRopeNode FRayRopeWrapSolver::CreateRedirectNode(
 	const FHitResult* BackSurfaceHit)
 {
 	FRayRopeNode RedirectNode;
-	RedirectNode.NodeType = ENodeType::Redirect;
+	RedirectNode.NodeType = ERayRopeNodeType::Redirect;
 	RedirectNode.AttachActor = ResolveRedirectAttachActor(FrontSurfaceHit, BackSurfaceHit);
 	const FVector RedirectLocation = FRayRopeWrapGeometry::CalculateRedirectLocation(
 		ValidSpan,
@@ -277,7 +283,7 @@ FRayRopeNode FRayRopeWrapSolver::CreateRedirectNode(
 void FRayRopeWrapSolver::AppendRedirectNodes(
 	const FRayRopeWrapSettings& WrapSettings,
 	const FRayWrapRedirectInput& RedirectInput,
-	TArray<FRayRopeNode>& OutNodes)
+	FRayRopeWrapNodeBuffer& OutNodes)
 {
 	// Redirect rules: one surface -> one redirect, corner -> one redirect, parallel planes -> two redirects.
 	if (RedirectInput.GetBackSurfaceHitPtr() == nullptr ||
@@ -340,7 +346,7 @@ bool FRayRopeWrapSolver::CanInsertWrapNode(
 	int32 InsertIndex,
 	const FRayRopeSegment& Segment,
 	const FRayRopeNode& Candidate,
-	const TArray<TPair<int32, FRayRopeNode>>& PendingInsertions)
+	const FRayRopePendingInsertionBuffer& PendingInsertions)
 {
 	if (!Segment.Nodes.IsValidIndex(InsertIndex - 1) ||
 		!Segment.Nodes.IsValidIndex(InsertIndex))
@@ -378,12 +384,12 @@ bool FRayRopeWrapSolver::AreEquivalentWrapNodes(
 		return false;
 	}
 
-	if (FirstNode.NodeType == ENodeType::Anchor)
+	if (FirstNode.NodeType == ERayRopeNodeType::Anchor)
 	{
 		return FirstNode.AttachActor == SecondNode.AttachActor;
 	}
 
-	if (FirstNode.NodeType != ENodeType::Redirect)
+	if (FirstNode.NodeType != ERayRopeNodeType::Redirect)
 	{
 		return false;
 	}

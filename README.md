@@ -87,6 +87,8 @@ The most important editor-exposed settings on the component are:
   Selects the collision channel used by all rope traces. The default is `ECC_Visibility`.
 - `RelaxSolverEpsilon` and `RelaxCollinearEpsilon`
   Control when stale redirect nodes are considered close enough to collapse.
+- `MoveSolverEpsilon`, `MovePlaneParallelEpsilon`, `MoveEffectivePointSearchEpsilon`, `MaxMoveIterations`, and `MaxMoveEffectivePointSearchIterations`
+  Control redirect movement geometry tolerance, rail direction validation, move pass count, and effective point search convergence.
 - `MaxRopeLength`
   Disables owner clamping at `0` and enables it for any positive value.
 
@@ -143,7 +145,7 @@ For each segment, the solver currently performs these steps:
    Updates every actor-backed node in one pass:
    anchors read their current anchor transform, redirects rebuild world space from the cached actor-local offset.
 2. `MoveSegment`
-   Delegates to `FRayRopeMoveSolver` as the dedicated movement pass. It is currently a no-op placeholder for future movement or constraint logic.
+   Moves non-anchor redirect nodes along the local rail direction found from nearby hit planes, keeping the candidate point trace-valid against adjacent rope spans.
 3. `WrapSegment`
    Detects when a straight rope line now intersects geometry and inserts new nodes.
 4. `RelaxSegment`

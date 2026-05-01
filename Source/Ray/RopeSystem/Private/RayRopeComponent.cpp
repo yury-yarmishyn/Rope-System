@@ -227,6 +227,11 @@ void URayRopeComponent::SolveSegment(FRayRopeSegment& Segment) const
 	WrapSettings.WrapOffset = WrapOffset;
 
 	FRayRopeMoveSettings MoveSettings;
+	MoveSettings.MoveSolverEpsilon = MoveSolverEpsilon;
+	MoveSettings.PlaneParallelEpsilon = MovePlaneParallelEpsilon;
+	MoveSettings.EffectivePointSearchEpsilon = MoveEffectivePointSearchEpsilon;
+	MoveSettings.MaxMoveIterations = MaxMoveIterations;
+	MoveSettings.MaxEffectivePointSearchIterations = MaxMoveEffectivePointSearchIterations;
 
 	FRayRopeRelaxSettings RelaxSettings;
 	RelaxSettings.RelaxSolverEpsilon = RelaxSolverEpsilon;

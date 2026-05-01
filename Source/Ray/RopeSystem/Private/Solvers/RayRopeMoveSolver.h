@@ -4,6 +4,11 @@
 
 struct FRayRopeMoveSettings
 {
+	float MoveSolverEpsilon = KINDA_SMALL_NUMBER;
+	float PlaneParallelEpsilon = KINDA_SMALL_NUMBER;
+	float EffectivePointSearchEpsilon = KINDA_SMALL_NUMBER;
+	int32 MaxMoveIterations = 4;
+	int32 MaxEffectivePointSearchIterations = 8;
 };
 
 struct FRayRopeMoveSolver
@@ -12,4 +17,111 @@ struct FRayRopeMoveSolver
 		const FRayRopeTraceSettings& TraceSettings,
 		const FRayRopeMoveSettings& MoveSettings,
 		FRayRopeSegment& Segment);
+
+	static bool TryFindEffectiveMovePoint(
+		const FRayRopeTraceSettings& TraceSettings,
+		const FRayRopeMoveSettings& MoveSettings,
+		const FVector& PrevLocation,
+		const FVector& CurrentLocation,
+		const FVector& NextLocation,
+		FVector& OutEffectivePoint);
+
+private:
+	struct FEffectivePointCandidate
+	{
+		float RailParameter = 0.f;
+		FVector Location = FVector::ZeroVector;
+		float DistanceSum = TNumericLimits<float>::Max();
+	};
+
+	struct FEffectivePointSearchState
+	{
+		float LeftRailParameter = 0.f;
+		float RightRailParameter = 0.f;
+		FEffectivePointCandidate BestCandidate;
+	};
+
+	static bool TryFindEffectiveMovePoint(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeMoveSettings& MoveSettings,
+		const FRayRopeNode& PrevNode,
+		const FRayRopeNode& CurrentNode,
+		const FRayRopeNode& NextNode,
+		FVector& OutEffectivePoint);
+
+	static bool TryBuildMoveRailDirection(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeMoveSettings& MoveSettings,
+		const FRayRopeNode& PrevNode,
+		const FRayRopeNode& CurrentNode,
+		const FRayRopeNode& NextNode,
+		FVector& OutRailDirection);
+
+	static bool TryFindRailDirectionSurfaceHits(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeMoveSettings& MoveSettings,
+		const FRayRopeNode& PrevNode,
+		const FRayRopeNode& CurrentNode,
+		const FRayRopeNode& NextNode,
+		FHitResult& OutPrevCurrentToCurrentNextHit,
+		FHitResult& OutCurrentNextToPrevCurrentHit);
+
+	static bool TryTraceMoveHit(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeMoveSettings& MoveSettings,
+		const FRayRopeNode& StartNode,
+		const FRayRopeNode& EndNode,
+		FHitResult& OutHit);
+
+	static bool TryFindPlaneIntersectionRailDirection(
+		const FRayRopeMoveSettings& MoveSettings,
+		const FHitResult& FirstSurfaceHit,
+		const FHitResult& SecondSurfaceHit,
+		FVector& OutRailDirection);
+
+	static bool TryFindEffectivePointOnRail(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeMoveSettings& MoveSettings,
+		const FVector& RailDirection,
+		const FRayRopeNode& PrevNode,
+		const FRayRopeNode& CurrentNode,
+		const FRayRopeNode& NextNode,
+		FVector& OutEffectivePoint);
+
+	static FVector CalculateRailPoint(
+		const FVector& CurrentLocation,
+		const FVector& NormalizedRailDirection,
+		float RailParameter);
+
+	static float CalculateEffectivePointDistanceSum(
+		const FVector& PrevLocation,
+		const FVector& CandidateLocation,
+		const FVector& NextLocation);
+
+	static bool TryEvaluateEffectivePointCandidate(
+		const FRayRopeTraceContext& TraceContext,
+		const FVector& NormalizedRailDirection,
+		const FRayRopeNode& PrevNode,
+		const FRayRopeNode& CurrentNode,
+		const FRayRopeNode& NextNode,
+		float RailParameter,
+		FEffectivePointCandidate& OutCandidate,
+		bool& bOutHasBlockingHit);
+
+	static bool HasEffectivePointBlockingHit(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeNode& PrevNode,
+		const FRayRopeNode& CandidateNode,
+		const FRayRopeNode& NextNode);
+
+	static bool HasBlockingHitBetween(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeNode& StartNode,
+		const FRayRopeNode& EndNode);
+
+	static FRayRopeNode CreateMovePointNode(const FVector& WorldLocation);
+
+	static void SaveBetterEffectivePointCandidate(
+		const FEffectivePointCandidate& Candidate,
+		FEffectivePointSearchState& SearchState);
 };

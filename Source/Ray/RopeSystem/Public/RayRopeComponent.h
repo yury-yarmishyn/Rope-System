@@ -72,6 +72,21 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
 	float RelaxCollinearEpsilon = 0.01f;
 
+	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float MoveSolverEpsilon = 1.f;
+
+	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
+	float MovePlaneParallelEpsilon = 0.01f;
+
+	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float MoveEffectivePointSearchEpsilon = 1.f;
+
+	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0", UIMin = "0"))
+	int32 MaxMoveIterations = 4;
+
+	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0", UIMin = "0"))
+	int32 MaxMoveEffectivePointSearchIterations = 8;
+
 	// Blueprint dispatchers remain component-owned because they are part of the Unreal-facing API.
 	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
 	FOnSegmentsSet OnSegmentsSet;

@@ -4,9 +4,9 @@
 
 struct FRayRopeMoveSettings
 {
-	float MoveSolverEpsilon = KINDA_SMALL_NUMBER;
-	float PlaneParallelEpsilon = KINDA_SMALL_NUMBER;
-	float EffectivePointSearchEpsilon = KINDA_SMALL_NUMBER;
+	float MoveSolverTolerance = KINDA_SMALL_NUMBER;
+	float PlaneParallelTolerance = KINDA_SMALL_NUMBER;
+	float EffectivePointSearchTolerance = KINDA_SMALL_NUMBER;
 	int32 MaxMoveIterations = 4;
 	int32 MaxEffectivePointSearchIterations = 8;
 };
@@ -27,20 +27,6 @@ struct FRayRopeMoveSolver
 		FVector& OutEffectivePoint);
 
 private:
-	struct FEffectivePointCandidate
-	{
-		float RailParameter = 0.f;
-		FVector Location = FVector::ZeroVector;
-		float DistanceSum = TNumericLimits<float>::Max();
-	};
-
-	struct FEffectivePointSearchState
-	{
-		float LeftRailParameter = 0.f;
-		float RightRailParameter = 0.f;
-		FEffectivePointCandidate BestCandidate;
-	};
-
 	static bool TryFindEffectiveMovePoint(
 		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeMoveSettings& MoveSettings,
@@ -88,40 +74,5 @@ private:
 		const FRayRopeNode& NextNode,
 		FVector& OutEffectivePoint);
 
-	static FVector CalculateRailPoint(
-		const FVector& CurrentLocation,
-		const FVector& NormalizedRailDirection,
-		float RailParameter);
-
-	static float CalculateEffectivePointDistanceSum(
-		const FVector& PrevLocation,
-		const FVector& CandidateLocation,
-		const FVector& NextLocation);
-
-	static bool TryEvaluateEffectivePointCandidate(
-		const FRayRopeTraceContext& TraceContext,
-		const FVector& NormalizedRailDirection,
-		const FRayRopeNode& PrevNode,
-		const FRayRopeNode& CurrentNode,
-		const FRayRopeNode& NextNode,
-		float RailParameter,
-		FEffectivePointCandidate& OutCandidate,
-		bool& bOutHasBlockingHit);
-
-	static bool HasEffectivePointBlockingHit(
-		const FRayRopeTraceContext& TraceContext,
-		const FRayRopeNode& PrevNode,
-		const FRayRopeNode& CandidateNode,
-		const FRayRopeNode& NextNode);
-
-	static bool HasBlockingHitBetween(
-		const FRayRopeTraceContext& TraceContext,
-		const FRayRopeNode& StartNode,
-		const FRayRopeNode& EndNode);
-
 	static FRayRopeNode CreateMovePointNode(const FVector& WorldLocation);
-
-	static void SaveBetterEffectivePointCandidate(
-		const FEffectivePointCandidate& Candidate,
-		FEffectivePointSearchState& SearchState);
 };

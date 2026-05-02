@@ -6,8 +6,9 @@ class AActor;
 
 struct FRayRopeRelaxSettings
 {
-	float RelaxSolverEpsilon = 0.f;
-	float RelaxCollinearEpsilon = 0.f;
+	float RelaxSolverTolerance = 0.f;
+	float RelaxCollinearityTolerance = 0.f;
+	int32 MaxRelaxCollapseIterations = 8;
 };
 
 struct FRayRopeTopology
@@ -44,4 +45,12 @@ private:
 		const FRayRopeNode& PrevNode,
 		const FRayRopeNode& CurrentNode,
 		const FRayRopeNode& NextNode);
+
+	static bool CanContinuouslyCollapseRelaxNode(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeRelaxSettings& RelaxSettings,
+		const FRayRopeNode& PrevNode,
+		const FRayRopeNode& CurrentNode,
+		const FRayRopeNode& NextNode,
+		const FVector& CollapseTarget);
 };

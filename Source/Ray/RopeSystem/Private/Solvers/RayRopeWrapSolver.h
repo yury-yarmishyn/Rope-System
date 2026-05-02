@@ -52,22 +52,26 @@ private:
 		const FRayRopeSpan& InvalidSpan,
 		FHitResult& SurfaceHit);
 
-	static FRayRopeNode CreateRedirectNode(
+	static bool TryCreateRedirectNode(
+		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeWrapSettings& WrapSettings,
 		const FRayRopeSpan& ValidSpan,
 		const FHitResult& FrontSurfaceHit,
-		const FHitResult* BackSurfaceHit);
+		const FHitResult* BackSurfaceHit,
+		FRayRopeNode& OutNode);
 
 	static void AppendRedirectNodes(
+		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeWrapSettings& WrapSettings,
 		const FRayWrapRedirectInput& RedirectInput,
 		FRayRopeWrapNodeBuffer& OutNodes);
 
-	static AActor* ResolveRedirectAttachActor(
+	static AActor* ResolveRedirectAttachedActor(
 		const FHitResult& FrontSurfaceHit,
 		const FHitResult* BackSurfaceHit);
 
 	static bool CanInsertWrapNode(
+		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeWrapSettings& WrapSettings,
 		int32 InsertIndex,
 		const FRayRopeSegment& Segment,

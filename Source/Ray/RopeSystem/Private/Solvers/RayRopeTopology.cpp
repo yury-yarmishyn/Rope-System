@@ -5,7 +5,6 @@
 #include "GameFramework/Actor.h"
 #include "Solvers/RayRopeNodeResolver.h"
 #include "Helpers/RayRopeTrace.h"
-#include "Helpers/RayRopeWrapGeometry.h"
 
 bool FRayRopeTopology::TryBuildBaseSegments(
 	const FRayRopeTraceSettings& TraceSettings,
@@ -129,6 +128,12 @@ void FRayRopeTopology::RelaxSegment(
 			continue;
 		}
 
+		if (FRayRopeTrace::IsPointInsideGeometry(TraceContext, CurrentNode.WorldLocation))
+		{
+			Segment.Nodes.RemoveAt(NodeIndex, 1, EAllowShrinking::No);
+			continue;
+		}
+
 		const FRayRopeNode& PrevNode = Segment.Nodes[NodeIndex - 1];
 		const FRayRopeNode& NextNode = Segment.Nodes[NodeIndex + 1];
 		if (CanRemoveRelaxNode(
@@ -160,23 +165,6 @@ bool FRayRopeTopology::CanRemoveRelaxNode(
 		return false;
 	}
 
-	const FVector FirstDirection = CurrentNode.WorldLocation - PrevNode.WorldLocation;
-	const FVector SecondDirection = NextNode.WorldLocation - CurrentNode.WorldLocation;
-	const bool bHasDegenerateBend =
-		FirstDirection.IsNearlyZero(RelaxSettings.RelaxSolverEpsilon) ||
-		SecondDirection.IsNearlyZero(RelaxSettings.RelaxSolverEpsilon);
-
-	const bool bHasCollinearBend =
-		FRayRopeWrapGeometry::AreDirectionsNearlyCollinear(
-			FirstDirection,
-			SecondDirection,
-			RelaxSettings.RelaxCollinearEpsilon);
-
-	if (bHasDegenerateBend || bHasCollinearBend)
-	{
-		return true;
-	}
-
 	const FVector ShortcutDirection = NextNode.WorldLocation - PrevNode.WorldLocation;
 	const float ShortcutLengthSquared = ShortcutDirection.SizeSquared();
 	const float T = ShortcutLengthSquared <= KINDA_SMALL_NUMBER
@@ -186,12 +174,62 @@ bool FRayRopeTopology::CanRemoveRelaxNode(
 			ShortcutDirection) / ShortcutLengthSquared;
 
 	const FVector ClosestPoint = PrevNode.WorldLocation + ShortcutDirection * T;
-	return CurrentNode.WorldLocation.Equals(ClosestPoint, RelaxSettings.RelaxSolverEpsilon) ||
-		!FRayRopeTrace::TryTraceBlockingHit(
+	return CanContinuouslyCollapseRelaxNode(
+		TraceContext,
+		RelaxSettings,
+		PrevNode,
+		CurrentNode,
+		NextNode,
+		ClosestPoint);
+}
+
+bool FRayRopeTopology::CanContinuouslyCollapseRelaxNode(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeRelaxSettings& RelaxSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& CollapseTarget)
+{
+	FHitResult SurfaceHit;
+	if (!CurrentNode.WorldLocation.Equals(CollapseTarget, RelaxSettings.RelaxSolverTolerance) &&
+		FRayRopeTrace::TryTraceBlockingHit(
 			TraceContext,
 			CurrentNode.WorldLocation,
-			ClosestPoint,
-			SurfaceHit);
+			CollapseTarget,
+			SurfaceHit))
+	{
+		return false;
+	}
+
+	const int32 MaxIterations = FMath::Max(1, RelaxSettings.MaxRelaxCollapseIterations);
+	for (int32 Iteration = 1; Iteration <= MaxIterations; ++Iteration)
+	{
+		const float Alpha = static_cast<float>(Iteration) / static_cast<float>(MaxIterations);
+		FRayRopeNode CandidateNode = CurrentNode;
+		CandidateNode.WorldLocation = FMath::Lerp(
+			CurrentNode.WorldLocation,
+			CollapseTarget,
+			Alpha);
+		if (FRayRopeTrace::IsPointInsideGeometry(TraceContext, CandidateNode.WorldLocation))
+		{
+			return false;
+		}
+
+		const FRayRopeSpan PrevCandidateSpan{&PrevNode, &CandidateNode};
+		if (FRayRopeTrace::TryTraceSpan(TraceContext, PrevCandidateSpan, SurfaceHit))
+		{
+			return false;
+		}
+
+		const FRayRopeSpan CandidateNextSpan{&CandidateNode, &NextNode};
+		if (FRayRopeTrace::TryTraceSpan(TraceContext, CandidateNextSpan, SurfaceHit))
+		{
+			return false;
+		}
+	}
+
+	return true;
 }
 
 void FRayRopeTopology::SplitSegmentsOnAnchors(TArray<FRayRopeSegment>& Segments)

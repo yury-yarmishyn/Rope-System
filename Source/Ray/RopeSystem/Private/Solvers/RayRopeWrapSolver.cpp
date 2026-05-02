@@ -9,6 +9,35 @@
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 
+namespace
+{
+bool IsInvalidWrapEndpoint(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeNode* Node)
+{
+	return Node == nullptr ||
+		Node->WorldLocation.ContainsNaN() ||
+		FRayRopeTrace::IsNodeInsideGeometry(TraceContext, *Node);
+}
+
+bool HasInvalidWrapEndpoint(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeSpan& Span)
+{
+	return !Span.IsValid() ||
+		IsInvalidWrapEndpoint(TraceContext, Span.StartNode) ||
+		IsInvalidWrapEndpoint(TraceContext, Span.EndNode);
+}
+
+bool IsValidRedirectCandidateLocation(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeNode& CandidateNode)
+{
+	return !CandidateNode.WorldLocation.ContainsNaN() &&
+		!FRayRopeTrace::IsPointInsideGeometry(TraceContext, CandidateNode.WorldLocation);
+}
+}
+
 void FRayRopeWrapSolver::WrapSegment(
 	const FRayRopeTraceSettings& TraceSettings,
 	const FRayRopeWrapSettings& WrapSettings,
@@ -48,6 +77,7 @@ void FRayRopeWrapSolver::WrapSegment(
 		for (FRayRopeNode& NewNode : NewNodes)
 		{
 			if (!CanInsertWrapNode(
+				TraceContext,
 				WrapSettings,
 				InsertIndex,
 				Segment,
@@ -92,6 +122,12 @@ bool FRayRopeWrapSolver::BuildWrapNodes(
 		return false;
 	}
 
+	if (HasInvalidWrapEndpoint(TraceContext, CurrentSpan) ||
+		HasInvalidWrapEndpoint(TraceContext, ReferenceSpan))
+	{
+		return false;
+	}
+
 	FHitResult FrontSurfaceHit;
 	if (!FRayRopeTrace::TryTraceSpan(TraceContext, CurrentSpan, FrontSurfaceHit))
 	{
@@ -124,7 +160,7 @@ bool FRayRopeWrapSolver::BuildWrapNodes(
 		return false;
 	}
 
-	AppendRedirectNodes(WrapSettings, RedirectInput, OutNodes);
+	AppendRedirectNodes(TraceContext, WrapSettings, RedirectInput, OutNodes);
 
 	return OutNodes.Num() > 0;
 }
@@ -205,7 +241,8 @@ bool FRayRopeWrapSolver::TryFindBoundaryHit(
 	const FRayRopeSpan& InvalidSpan,
 	FHitResult& SurfaceHit)
 {
-	if (!ValidSpan.IsValid() || !InvalidSpan.IsValid())
+	if (HasInvalidWrapEndpoint(TraceContext, ValidSpan) ||
+		HasInvalidWrapEndpoint(TraceContext, InvalidSpan))
 	{
 		SurfaceHit = FHitResult();
 		return false;
@@ -217,17 +254,17 @@ bool FRayRopeWrapSolver::TryFindBoundaryHit(
 	FRayRopeNode LastInvalidEndNode = *InvalidSpan.EndNode;
 	FRayRopeSpan LastValidSpan{&LastValidStartNode, &LastValidEndNode};
 	FRayRopeSpan LastInvalidSpan{&LastInvalidStartNode, &LastInvalidEndNode};
-	const float WrapSolverEpsilonSquared = FMath::Square(WrapSettings.WrapSolverEpsilon);
+	const float WrapSolverToleranceSquared = FMath::Square(WrapSettings.WrapSolverTolerance);
 
-	for (int32 Iteration = 0; Iteration < WrapSettings.MaxBinarySearchIteration; ++Iteration)
+	for (int32 Iteration = 0; Iteration < WrapSettings.MaxWrapBinarySearchIterations; ++Iteration)
 	{
 		const bool bStartCloseEnough =
 			FVector::DistSquared(LastValidSpan.GetStartLocation(), LastInvalidSpan.GetStartLocation()) <=
-			WrapSolverEpsilonSquared;
+			WrapSolverToleranceSquared;
 
 		const bool bEndCloseEnough =
 			FVector::DistSquared(LastValidSpan.GetEndLocation(), LastInvalidSpan.GetEndLocation()) <=
-			WrapSolverEpsilonSquared;
+			WrapSolverToleranceSquared;
 
 		if (bStartCloseEnough && bEndCloseEnough)
 		{
@@ -241,6 +278,12 @@ bool FRayRopeWrapSolver::TryFindBoundaryHit(
 		MidEndNode.WorldLocation =
 			(LastValidSpan.GetEndLocation() + LastInvalidSpan.GetEndLocation()) * 0.5f;
 		const FRayRopeSpan MidSpan{&MidStartNode, &MidEndNode};
+		if (HasInvalidWrapEndpoint(TraceContext, MidSpan))
+		{
+			LastInvalidStartNode = MidStartNode;
+			LastInvalidEndNode = MidEndNode;
+			continue;
+		}
 
 		FHitResult MidSurfaceHit;
 		if (FRayRopeTrace::TryTraceSpan(TraceContext, MidSpan, MidSurfaceHit))
@@ -254,18 +297,28 @@ bool FRayRopeWrapSolver::TryFindBoundaryHit(
 		LastValidEndNode = MidEndNode;
 	}
 
+	if (HasInvalidWrapEndpoint(TraceContext, LastInvalidSpan))
+	{
+		SurfaceHit = FHitResult();
+		return false;
+	}
+
 	return FRayRopeTrace::TryTraceSpan(TraceContext, LastInvalidSpan, SurfaceHit);
 }
 
-FRayRopeNode FRayRopeWrapSolver::CreateRedirectNode(
+bool FRayRopeWrapSolver::TryCreateRedirectNode(
+	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeWrapSettings& WrapSettings,
 	const FRayRopeSpan& ValidSpan,
 	const FHitResult& FrontSurfaceHit,
-	const FHitResult* BackSurfaceHit)
+	const FHitResult* BackSurfaceHit,
+	FRayRopeNode& OutNode)
 {
+	OutNode = FRayRopeNode();
+
 	FRayRopeNode RedirectNode;
 	RedirectNode.NodeType = ERayRopeNodeType::Redirect;
-	RedirectNode.AttachActor = ResolveRedirectAttachActor(FrontSurfaceHit, BackSurfaceHit);
+	RedirectNode.AttachedActor = ResolveRedirectAttachedActor(FrontSurfaceHit, BackSurfaceHit);
 	const FVector RedirectLocation = FRayRopeWrapGeometry::CalculateRedirectLocation(
 		ValidSpan,
 		FrontSurfaceHit,
@@ -276,11 +329,19 @@ FRayRopeNode FRayRopeWrapSolver::CreateRedirectNode(
 			FrontSurfaceHit,
 			BackSurfaceHit);
 	RedirectNode.WorldLocation = RedirectLocation + RedirectOffset;
-	FRayRopeNodeResolver::CacheAttachActorOffset(RedirectNode);
-	return RedirectNode;
+	if (RedirectNode.WorldLocation.ContainsNaN() ||
+		FRayRopeTrace::IsPointInsideGeometry(TraceContext, RedirectNode.WorldLocation))
+	{
+		return false;
+	}
+
+	FRayRopeNodeResolver::CacheAttachedActorOffset(RedirectNode);
+	OutNode = MoveTemp(RedirectNode);
+	return true;
 }
 
 void FRayRopeWrapSolver::AppendRedirectNodes(
+	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeWrapSettings& WrapSettings,
 	const FRayWrapRedirectInput& RedirectInput,
 	FRayRopeWrapNodeBuffer& OutNodes)
@@ -290,27 +351,45 @@ void FRayRopeWrapSolver::AppendRedirectNodes(
 		!FRayRopeWrapGeometry::AreDirectionsNearlyCollinear(
 			RedirectInput.FrontSurfaceHit.ImpactNormal,
 			RedirectInput.GetBackSurfaceHitPtr()->ImpactNormal,
-			WrapSettings.GeometryCollinearEpsilon))
+			WrapSettings.GeometryCollinearityTolerance))
 	{
-		OutNodes.Add(CreateRedirectNode(
+		FRayRopeNode RedirectNode;
+		if (TryCreateRedirectNode(
+			TraceContext,
 			WrapSettings,
 			RedirectInput.ValidSpan,
 			RedirectInput.FrontSurfaceHit,
-			RedirectInput.GetBackSurfaceHitPtr()));
+			RedirectInput.GetBackSurfaceHitPtr(),
+			RedirectNode))
+		{
+			OutNodes.Add(MoveTemp(RedirectNode));
+		}
 		return;
 	}
 
-	FRayRopeNode FirstNode = CreateRedirectNode(
+	FRayRopeNode FirstNode;
+	if (!TryCreateRedirectNode(
+		TraceContext,
 		WrapSettings,
 		RedirectInput.ValidSpan,
 		RedirectInput.FrontSurfaceHit,
-		nullptr);
+		nullptr,
+		FirstNode))
+	{
+		return;
+	}
 
-	FRayRopeNode SecondNode = CreateRedirectNode(
+	FRayRopeNode SecondNode;
+	if (!TryCreateRedirectNode(
+		TraceContext,
 		WrapSettings,
 		RedirectInput.ValidSpan,
 		*RedirectInput.GetBackSurfaceHitPtr(),
-		nullptr);
+		nullptr,
+		SecondNode))
+	{
+		return;
+	}
 
 	if (FVector::DistSquared(RedirectInput.ValidSpan.GetStartLocation(), FirstNode.WorldLocation) >
 		FVector::DistSquared(RedirectInput.ValidSpan.GetStartLocation(), SecondNode.WorldLocation))
@@ -322,7 +401,7 @@ void FRayRopeWrapSolver::AppendRedirectNodes(
 	OutNodes.Add(MoveTemp(SecondNode));
 }
 
-AActor* FRayRopeWrapSolver::ResolveRedirectAttachActor(
+AActor* FRayRopeWrapSolver::ResolveRedirectAttachedActor(
 	const FHitResult& FrontSurfaceHit,
 	const FHitResult* BackSurfaceHit)
 {
@@ -342,6 +421,7 @@ AActor* FRayRopeWrapSolver::ResolveRedirectAttachActor(
 }
 
 bool FRayRopeWrapSolver::CanInsertWrapNode(
+	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeWrapSettings& WrapSettings,
 	int32 InsertIndex,
 	const FRayRopeSegment& Segment,
@@ -350,6 +430,12 @@ bool FRayRopeWrapSolver::CanInsertWrapNode(
 {
 	if (!Segment.Nodes.IsValidIndex(InsertIndex - 1) ||
 		!Segment.Nodes.IsValidIndex(InsertIndex))
+	{
+		return false;
+	}
+
+	if (Candidate.NodeType == ERayRopeNodeType::Redirect &&
+		!IsValidRedirectCandidateLocation(TraceContext, Candidate))
 	{
 		return false;
 	}
@@ -386,7 +472,7 @@ bool FRayRopeWrapSolver::AreEquivalentWrapNodes(
 
 	if (FirstNode.NodeType == ERayRopeNodeType::Anchor)
 	{
-		return FirstNode.AttachActor == SecondNode.AttachActor;
+		return FirstNode.AttachedActor == SecondNode.AttachedActor;
 	}
 
 	if (FirstNode.NodeType != ERayRopeNodeType::Redirect)
@@ -395,23 +481,23 @@ bool FRayRopeWrapSolver::AreEquivalentWrapNodes(
 	}
 
 	const bool bBothAttached =
-		FirstNode.AttachActor == SecondNode.AttachActor &&
-		IsValid(FirstNode.AttachActor) &&
-		FirstNode.bUseAttachActorOffset &&
-		SecondNode.bUseAttachActorOffset;
+		FirstNode.AttachedActor == SecondNode.AttachedActor &&
+		IsValid(FirstNode.AttachedActor) &&
+		FirstNode.bUseAttachedActorOffset &&
+		SecondNode.bUseAttachedActorOffset;
 
 	if (bBothAttached)
 	{
-		return FirstNode.AttachActorOffset.Equals(
-			SecondNode.AttachActorOffset,
-			WrapSettings.WrapSolverEpsilon
+		return FirstNode.AttachedActorOffset.Equals(
+			SecondNode.AttachedActorOffset,
+			WrapSettings.WrapSolverTolerance
 		);
 	}
 
 	const bool bBothWorldSpace =
-		!IsValid(FirstNode.AttachActor) &&
-		!IsValid(SecondNode.AttachActor);
+		!IsValid(FirstNode.AttachedActor) &&
+		!IsValid(SecondNode.AttachedActor);
 
 	return bBothWorldSpace &&
-		FirstNode.WorldLocation.Equals(SecondNode.WorldLocation, WrapSettings.WrapSolverEpsilon);
+		FirstNode.WorldLocation.Equals(SecondNode.WorldLocation, WrapSettings.WrapSolverTolerance);
 }

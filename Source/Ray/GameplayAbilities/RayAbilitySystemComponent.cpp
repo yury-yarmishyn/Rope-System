@@ -37,16 +37,16 @@ void URayAbilitySystemComponent::SetDefaultAttributeValues(const TSubclassOf<UGa
 		return;
 	}
 
-	for (const FRayAttributeInitConfig& AttributeInitConfig : AttributeInitData->AttributeValues)
+	for (const FRayAttributeInitConfig& AttributeInitConfig : AttributeInitData->DefaultAttributeValues)
 	{
-		if (!AttributeInitConfig.DataTag.IsValid())
+		if (!AttributeInitConfig.SetByCallerTag.IsValid())
 		{
 			continue;
 		}
 
 		EffectSpecHandle.Data->SetSetByCallerMagnitude(
-			AttributeInitConfig.DataTag,
-			AttributeInitConfig.Value);
+			AttributeInitConfig.SetByCallerTag,
+			AttributeInitConfig.InitialValue);
 	}
 
 	ApplyGameplayEffectSpecToSelf(*EffectSpecHandle.Data);

@@ -10,8 +10,8 @@ bool FRayRopePhysicsSolver::Solve(
 	const TArray<FRayRopeSegment>& Segments,
 	const FRayRopePhysicsSettings& PhysicsSettings)
 {
-	if (PhysicsSettings.MaxRopeLength <= 0.f ||
-		PhysicsSettings.RopeLength <= PhysicsSettings.MaxRopeLength)
+	if (PhysicsSettings.MaxAllowedRopeLength <= 0.f ||
+		PhysicsSettings.CurrentRopeLength <= PhysicsSettings.MaxAllowedRopeLength)
 	{
 		return false;
 	}
@@ -55,7 +55,7 @@ bool FRayRopePhysicsSolver::TryGetOwnerTerminalNodes(
 	{
 		const FRayRopeNode& FirstNode = FirstSegment.Nodes[0];
 		if (FirstNode.NodeType == ERayRopeNodeType::Anchor &&
-			FirstNode.AttachActor == OwnerActor)
+			FirstNode.AttachedActor == OwnerActor)
 		{
 			OutOwnerNode = &FirstNode;
 			OutAdjacentNode = &FirstSegment.Nodes[1];
@@ -69,7 +69,7 @@ bool FRayRopePhysicsSolver::TryGetOwnerTerminalNodes(
 		const int32 LastNodeIndex = LastSegment.Nodes.Num() - 1;
 		const FRayRopeNode& LastNode = LastSegment.Nodes[LastNodeIndex];
 		if (LastNode.NodeType == ERayRopeNodeType::Anchor &&
-			LastNode.AttachActor == OwnerActor)
+			LastNode.AttachedActor == OwnerActor)
 		{
 			OutOwnerNode = &LastNode;
 			OutAdjacentNode = &LastSegment.Nodes[LastNodeIndex - 1];
@@ -101,7 +101,7 @@ bool FRayRopePhysicsSolver::ClampOwnerAnchorToMaxRopeLength(
 	}
 
 	const float ExcessLength =
-		PhysicsSettings.RopeLength - PhysicsSettings.MaxRopeLength;
+		PhysicsSettings.CurrentRopeLength - PhysicsSettings.MaxAllowedRopeLength;
 	if (ExcessLength <= KINDA_SMALL_NUMBER)
 	{
 		return false;

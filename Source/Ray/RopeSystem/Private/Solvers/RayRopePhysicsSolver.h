@@ -6,8 +6,8 @@ class AActor;
 
 struct FRayRopePhysicsSettings
 {
-	float RopeLength = 0.f;
-	float MaxRopeLength = 0.f;
+	float CurrentRopeLength = 0.f;
+	float MaxAllowedRopeLength = 0.f;
 };
 
 struct FRayRopePhysicsSolver

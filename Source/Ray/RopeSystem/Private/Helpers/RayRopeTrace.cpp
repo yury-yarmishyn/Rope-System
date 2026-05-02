@@ -1,6 +1,7 @@
 #include "RayRopeTrace.h"
 
 #include "CollisionQueryParams.h"
+#include "CollisionShape.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/SceneComponent.h"
 #include "Engine/World.h"
@@ -18,26 +19,26 @@ const AActor* GetIgnoredEndpointActor(const FRayRopeNode* Node)
 {
 	return Node != nullptr &&
 		Node->NodeType == ERayRopeNodeType::Anchor &&
-		IsValid(Node->AttachActor)
-		? Node->AttachActor
+		IsValid(Node->AttachedActor)
+		? Node->AttachedActor
 		: nullptr;
 }
 
 FCollisionQueryParams BuildSpanQueryParams(
 	const FRayRopeTraceContext& TraceContext,
-	const AActor* StartAttachActor,
-	const AActor* EndAttachActor)
+	const AActor* StartAttachedActor,
+	const AActor* EndAttachedActor)
 {
 	FCollisionQueryParams QueryParams = TraceContext.QueryParams;
 
-	if (StartAttachActor != nullptr)
+	if (StartAttachedActor != nullptr)
 	{
-		QueryParams.AddIgnoredActor(StartAttachActor);
+		QueryParams.AddIgnoredActor(StartAttachedActor);
 	}
 
-	if (EndAttachActor != nullptr && EndAttachActor != StartAttachActor)
+	if (EndAttachedActor != nullptr && EndAttachedActor != StartAttachedActor)
 	{
-		QueryParams.AddIgnoredActor(EndAttachActor);
+		QueryParams.AddIgnoredActor(EndAttachedActor);
 	}
 
 	return QueryParams;
@@ -106,6 +107,25 @@ bool TryTraceBlockingHitWithQueryParams(
 	SurfaceHit = FHitResult();
 	return false;
 }
+
+bool IsPointInsideGeometryWithQueryParams(
+	const FRayRopeTraceContext& TraceContext,
+	const FVector& WorldLocation,
+	const FCollisionQueryParams& QueryParams,
+	float ProbeRadius)
+{
+	if (!IsValid(TraceContext.World) || WorldLocation.ContainsNaN())
+	{
+		return false;
+	}
+
+	return TraceContext.World->OverlapBlockingTestByChannel(
+		WorldLocation,
+		FQuat::Identity,
+		TraceContext.TraceChannel,
+		FCollisionShape::MakeSphere(FMath::Max(ProbeRadius, KINDA_SMALL_NUMBER)),
+		QueryParams);
+}
 }
 
 FRayRopeTraceContext FRayRopeTrace::MakeTraceContext(
@@ -145,9 +165,9 @@ bool FRayRopeTrace::TryTraceSpan(
 		return false;
 	}
 
-	const AActor* StartAttachActor = GetIgnoredEndpointActor(Span.StartNode);
-	const AActor* EndAttachActor = GetIgnoredEndpointActor(Span.EndNode);
-	if (StartAttachActor == nullptr && EndAttachActor == nullptr)
+	const AActor* StartAttachedActor = GetIgnoredEndpointActor(Span.StartNode);
+	const AActor* EndAttachedActor = GetIgnoredEndpointActor(Span.EndNode);
+	if (StartAttachedActor == nullptr && EndAttachedActor == nullptr)
 	{
 		return TryTraceBlockingHitWithQueryParams(
 			TraceContext,
@@ -161,7 +181,7 @@ bool FRayRopeTrace::TryTraceSpan(
 		TraceContext,
 		Span.GetStartLocation(),
 		Span.GetEndLocation(),
-		BuildSpanQueryParams(TraceContext, StartAttachActor, EndAttachActor),
+		BuildSpanQueryParams(TraceContext, StartAttachedActor, EndAttachedActor),
 		SurfaceHit);
 }
 
@@ -177,6 +197,38 @@ bool FRayRopeTrace::TryTraceBlockingHit(
 		EndLocation,
 		TraceContext.QueryParams,
 		SurfaceHit);
+}
+
+bool FRayRopeTrace::IsPointInsideGeometry(
+	const FRayRopeTraceContext& TraceContext,
+	const FVector& WorldLocation,
+	float ProbeRadius)
+{
+	return IsPointInsideGeometryWithQueryParams(
+		TraceContext,
+		WorldLocation,
+		TraceContext.QueryParams,
+		ProbeRadius);
+}
+
+bool FRayRopeTrace::IsNodeInsideGeometry(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeNode& Node,
+	float ProbeRadius)
+{
+	const AActor* IgnoredActor = GetIgnoredEndpointActor(&Node);
+	if (IgnoredActor == nullptr)
+	{
+		return IsPointInsideGeometry(TraceContext, Node.WorldLocation, ProbeRadius);
+	}
+
+	FCollisionQueryParams QueryParams = TraceContext.QueryParams;
+	QueryParams.AddIgnoredActor(IgnoredActor);
+	return IsPointInsideGeometryWithQueryParams(
+		TraceContext,
+		Node.WorldLocation,
+		QueryParams,
+		ProbeRadius);
 }
 
 bool FRayRopeTrace::CanUseHitForRedirectWrap(

@@ -47,82 +47,103 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Rope|Setters")
 	void SetSegments(TArray<FRayRopeSegment> NewSegments);
 
+	UFUNCTION(BlueprintCallable, Category = "Rope|Debug")
+	void SetRopeDebugEnabled(bool bEnabled);
+
+	UFUNCTION(BlueprintPure, Category = "Rope|Debug")
+	bool IsRopeDebugEnabled() const;
+
 	// Editor-exposed solver and trace settings remain on the component for Blueprint and editor access.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults", meta = (ClampMin = "0", UIMin = "0"))
-	int32 MaxBinarySearchIteration = 4;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults", meta = (ClampMin = "0.0", UIMin = "0.0"))
-	float WrapSolverEpsilon = 1.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults", meta = (ClampMin = "0.0", UIMin = "0.0"))
-	float WrapOffset = 2.f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
-	bool bAllowWrapOnMovableObjects = true;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Trace")
 	TEnumAsByte<ECollisionChannel> TraceChannel = ECC_Visibility;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Defaults")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Trace")
 	bool bTraceComplex = false;
 
-	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
-	float RelaxSolverEpsilon = 1.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Wrap Solver")
+	bool bAllowWrapOnMovableObjects = true;
 
-	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
-	float RelaxCollinearEpsilon = 0.01f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Wrap Solver", meta = (ClampMin = "0", UIMin = "0"))
+	int32 MaxWrapBinarySearchIterations = 4;
 
-	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
-	float MoveSolverEpsilon = 1.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Wrap Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float WrapSolverTolerance = 1.f;
 
-	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
-	float MovePlaneParallelEpsilon = 0.01f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Wrap Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float WrapSurfaceOffset = 2.f;
 
-	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
-	float MoveEffectivePointSearchEpsilon = 1.f;
+	UPROPERTY(EditAnywhere, Category = "Rope|Relax Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float RelaxSolverTolerance = 1.f;
 
-	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0", UIMin = "0"))
+	UPROPERTY(EditAnywhere, Category = "Rope|Relax Solver", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
+	float RelaxCollinearityTolerance = 0.01f;
+
+	UPROPERTY(EditAnywhere, Category = "Rope|Relax Solver", meta = (ClampMin = "1", UIMin = "1"))
+	int32 MaxRelaxCollapseIterations = 8;
+
+	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float MoveSolverTolerance = 1.f;
+
+	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
+	float MovePlaneParallelTolerance = 0.01f;
+
+	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float MoveEffectivePointSearchTolerance = 1.f;
+
+	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0", UIMin = "0"))
 	int32 MaxMoveIterations = 4;
 
-	UPROPERTY(EditAnywhere, Category = "Ray Rope|Solver", meta = (ClampMin = "0", UIMin = "0"))
-	int32 MaxMoveEffectivePointSearchIterations = 8;
+	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0", UIMin = "0"))
+	int32 MaxEffectivePointSearchIterations = 8;
 
 	// Blueprint dispatchers remain component-owned because they are part of the Unreal-facing API.
-	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
-	FOnSegmentsSet OnSegmentsSet;
+	UPROPERTY(BlueprintAssignable, Category = "Rope|Events")
+	FOnSegmentsSet OnRopeSegmentsUpdated;
 
-	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
+	UPROPERTY(BlueprintAssignable, Category = "Rope|Events")
 	FOnRopeSolveStarted OnRopeSolveStarted;
 
-	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
+	UPROPERTY(BlueprintAssignable, Category = "Rope|Events")
 	FOnRopeSolveEnded OnRopeSolveEnded;
 
-	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
+	UPROPERTY(BlueprintAssignable, Category = "Rope|Events")
 	FOnRopeSegmentBroken OnRopeSegmentBroken;
 
-	UPROPERTY(BlueprintAssignable, Category = "Rope|Dispatchers")
+	UPROPERTY(BlueprintAssignable, Category = "Rope|Events")
 	FOnRopeBroken OnRopeBroken;
 
 	// Runtime rope state remains on the component for Blueprint visibility and lifecycle ownership.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Dynamic")
-	bool bShouldSolveRope = false;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Runtime")
+	bool bIsRopeSolving = false;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rope|Dynamic")
-	float RopeLength = 0.f;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rope|Runtime")
+	float CurrentRopeLength = 0.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Constraint", meta = (ClampMin = "0.0", UIMin = "0.0"))
-	float MaxRopeLength = 0.f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Length Constraint", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float MaxAllowedRopeLength = 0.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope|Debug")
+	FRayRopeDebugSettings RopeDebugSettings;
 
 protected:
 	// The component owns the runtime rope state that helper passes operate on.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Dynamic")
-	TArray<FRayRopeSegment> Segments;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rope|Runtime")
+	TArray<FRayRopeSegment> RopeSegments;
+
+	UPROPERTY(Transient)
+	float NextDebugLogTimeSeconds = 0.f;
 
 	// Component-owned orchestration stays here; the algorithmic passes live in plain C++ helpers.
 	void SyncRopeNodes();
 	void RefreshRopeLength();
 	void SolveRope();
-	void SolveSegment(FRayRopeSegment& Segment) const;
+	void SolveSegment(FRayRopeSegment& Segment, int32 SegmentIndex) const;
 	bool ApplyRopeRuntimeEffects();
 	void FinalizeSolve();
+
+	bool IsDebugDrawEnabled() const;
+	bool IsDebugLogEnabled() const;
+	void TickDebug(const TCHAR* Context);
+	void DrawDebugRope() const;
+	void LogDebugRopeState(const TCHAR* Context, bool bForce = false);
 };

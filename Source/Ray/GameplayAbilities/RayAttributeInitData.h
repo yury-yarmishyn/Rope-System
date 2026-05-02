@@ -13,14 +13,14 @@ struct FRayAttributeInitConfig
 {
 	GENERATED_BODY()
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
-	FGameplayAttribute Attribute;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Attributes|Initialization")
+	FGameplayAttribute TargetAttribute;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
-	float Value = 0.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Attributes|Initialization")
+	float InitialValue = 0.f;
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly)
-	FGameplayTag DataTag;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Attributes|Initialization")
+	FGameplayTag SetByCallerTag;
 };
 
 /**
@@ -33,6 +33,6 @@ class RAY_API URayAttributeInitData : public UDataAsset
 	
 public:
 
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Attributes")
-	TArray<FRayAttributeInitConfig> AttributeValues;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Attributes|Initialization")
+	TArray<FRayAttributeInitConfig> DefaultAttributeValues;
 };

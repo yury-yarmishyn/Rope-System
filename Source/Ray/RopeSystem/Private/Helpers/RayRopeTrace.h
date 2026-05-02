@@ -21,6 +21,16 @@ struct FRayRopeTrace
 		const FVector& EndLocation,
 		FHitResult& SurfaceHit);
 
+	static bool IsPointInsideGeometry(
+		const FRayRopeTraceContext& TraceContext,
+		const FVector& WorldLocation,
+		float ProbeRadius = KINDA_SMALL_NUMBER);
+
+	static bool IsNodeInsideGeometry(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeNode& Node,
+		float ProbeRadius = KINDA_SMALL_NUMBER);
+
 	static bool CanUseHitForRedirectWrap(
 		const FHitResult& SurfaceHit,
 		bool bAllowWrapOnMovableObjects);

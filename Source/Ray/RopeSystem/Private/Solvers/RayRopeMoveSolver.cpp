@@ -5,6 +5,189 @@
 #include "Helpers/RayRopeTrace.h"
 #include "RayRopeNodeResolver.h"
 
+namespace
+{
+struct FMoveRailSearchContext
+{
+	const FRayRopeTraceContext& TraceContext;
+	const FRayRopeMoveSettings& MoveSettings;
+	const FRayRopeNode& PrevNode;
+	const FRayRopeNode& CurrentNode;
+	const FRayRopeNode& NextNode;
+	const FVector RailDirection;
+};
+
+FRayRopeNode CreateTransientMoveNode(const FVector& WorldLocation)
+{
+	FRayRopeNode Node;
+	Node.NodeType = ERayRopeNodeType::Redirect;
+	Node.WorldLocation = WorldLocation;
+	return Node;
+}
+
+FVector GetRailPoint(const FMoveRailSearchContext& SearchContext, float RailParameter)
+{
+	return SearchContext.CurrentNode.WorldLocation + SearchContext.RailDirection * RailParameter;
+}
+
+bool HasBlockingHitBetween(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeNode& StartNode,
+	const FRayRopeNode& EndNode)
+{
+	if (!IsValid(TraceContext.World) ||
+		StartNode.WorldLocation.ContainsNaN() ||
+		EndNode.WorldLocation.ContainsNaN() ||
+		StartNode.WorldLocation.Equals(EndNode.WorldLocation, KINDA_SMALL_NUMBER))
+	{
+		return false;
+	}
+
+	FHitResult Hit;
+	const FRayRopeSpan TraceSpan{&StartNode, &EndNode};
+	return FRayRopeTrace::TryTraceSpan(TraceContext, TraceSpan, Hit);
+}
+
+bool IsRailPointBlocked(const FMoveRailSearchContext& SearchContext, float RailParameter)
+{
+	const FVector CandidateLocation = GetRailPoint(SearchContext, RailParameter);
+	if (FRayRopeTrace::IsPointInsideGeometry(SearchContext.TraceContext, CandidateLocation))
+	{
+		return true;
+	}
+
+	const FRayRopeNode CandidateNode = CreateTransientMoveNode(CandidateLocation);
+
+	return HasBlockingHitBetween(SearchContext.TraceContext, SearchContext.PrevNode, CandidateNode) ||
+		HasBlockingHitBetween(SearchContext.TraceContext, CandidateNode, SearchContext.NextNode);
+}
+
+float CalculateRailDistanceSum(const FMoveRailSearchContext& SearchContext, float RailParameter)
+{
+	const FVector CandidateLocation = GetRailPoint(SearchContext, RailParameter);
+	return FVector::Dist(SearchContext.PrevNode.WorldLocation, CandidateLocation) +
+		FVector::Dist(CandidateLocation, SearchContext.NextNode.WorldLocation);
+}
+
+float RefineReachableRailLimit(
+	const FMoveRailSearchContext& SearchContext,
+	float LastValidRailParameter,
+	float FirstBlockedRailParameter)
+{
+	const int32 MaxIterations = FMath::Max(0, SearchContext.MoveSettings.MaxEffectivePointSearchIterations);
+	for (int32 Iteration = 0; Iteration < MaxIterations; ++Iteration)
+	{
+		if (FMath::Abs(FirstBlockedRailParameter - LastValidRailParameter) <=
+			SearchContext.MoveSettings.MoveSolverTolerance)
+		{
+			break;
+		}
+
+		const float MidRailParameter = (LastValidRailParameter + FirstBlockedRailParameter) * 0.5f;
+		if (IsRailPointBlocked(SearchContext, MidRailParameter))
+		{
+			FirstBlockedRailParameter = MidRailParameter;
+		}
+		else
+		{
+			LastValidRailParameter = MidRailParameter;
+		}
+	}
+
+	return LastValidRailParameter;
+}
+
+bool TryClampRailParameterToReachablePath(
+	const FMoveRailSearchContext& SearchContext,
+	float TargetRailParameter,
+	float& OutRailParameter)
+{
+	OutRailParameter = 0.f;
+
+	if (IsRailPointBlocked(SearchContext, 0.f))
+	{
+		return false;
+	}
+
+	if (FMath::IsNearlyZero(TargetRailParameter, SearchContext.MoveSettings.MoveSolverTolerance))
+	{
+		return true;
+	}
+
+	float LastValidRailParameter = 0.f;
+	const int32 StepCount = FMath::Max(1, SearchContext.MoveSettings.MaxEffectivePointSearchIterations);
+	for (int32 StepIndex = 1; StepIndex <= StepCount; ++StepIndex)
+	{
+		const float SampleRailParameter =
+			TargetRailParameter * static_cast<float>(StepIndex) / static_cast<float>(StepCount);
+
+		if (IsRailPointBlocked(SearchContext, SampleRailParameter))
+		{
+			OutRailParameter = RefineReachableRailLimit(
+				SearchContext,
+				LastValidRailParameter,
+				SampleRailParameter);
+			return true;
+		}
+
+		LastValidRailParameter = SampleRailParameter;
+	}
+
+	OutRailParameter = TargetRailParameter;
+	return true;
+}
+
+float FindBestRailParameter(
+	const FMoveRailSearchContext& SearchContext,
+	float LeftRailParameter,
+	float RightRailParameter)
+{
+	float BestRailParameter = 0.f;
+	float BestDistanceSum = CalculateRailDistanceSum(SearchContext, BestRailParameter);
+	const float SearchEpsilon = FMath::Max(
+		SearchContext.MoveSettings.EffectivePointSearchTolerance,
+		SearchContext.MoveSettings.MoveSolverTolerance);
+
+	const int32 MaxIterations = FMath::Max(0, SearchContext.MoveSettings.MaxEffectivePointSearchIterations);
+	for (int32 Iteration = 0; Iteration < MaxIterations; ++Iteration)
+	{
+		if (FMath::Abs(RightRailParameter - LeftRailParameter) <= SearchEpsilon)
+		{
+			break;
+		}
+
+		const float MidRailParameter = (LeftRailParameter + RightRailParameter) * 0.5f;
+		const float LeftMidRailParameter = (LeftRailParameter + MidRailParameter) * 0.5f;
+		const float RightMidRailParameter = (MidRailParameter + RightRailParameter) * 0.5f;
+
+		const float LeftMidDistanceSum = CalculateRailDistanceSum(SearchContext, LeftMidRailParameter);
+		const float RightMidDistanceSum = CalculateRailDistanceSum(SearchContext, RightMidRailParameter);
+		if (LeftMidDistanceSum < BestDistanceSum)
+		{
+			BestRailParameter = LeftMidRailParameter;
+			BestDistanceSum = LeftMidDistanceSum;
+		}
+
+		if (RightMidDistanceSum < BestDistanceSum)
+		{
+			BestRailParameter = RightMidRailParameter;
+			BestDistanceSum = RightMidDistanceSum;
+		}
+
+		if (LeftMidDistanceSum <= RightMidDistanceSum)
+		{
+			RightRailParameter = MidRailParameter;
+		}
+		else
+		{
+			LeftRailParameter = MidRailParameter;
+		}
+	}
+
+	return BestRailParameter;
+}
+}
+
 void FRayRopeMoveSolver::MoveSegment(
 	const FRayRopeTraceSettings& TraceSettings,
 	const FRayRopeMoveSettings& MoveSettings,
@@ -51,7 +234,7 @@ void FRayRopeMoveSolver::MoveSegment(
 			}
 
 			CurrentNode.WorldLocation = EffectivePoint;
-			FRayRopeNodeResolver::CacheAttachActorOffset(CurrentNode);
+			FRayRopeNodeResolver::CacheAttachedActorOffset(CurrentNode);
 		}
 	}
 }
@@ -177,7 +360,7 @@ bool FRayRopeMoveSolver::TryFindRailDirectionSurfaceHits(
 		return false;
 	}
 
-	const float SearchEpsilon = FMath::Max(MoveSettings.MoveSolverEpsilon, KINDA_SMALL_NUMBER);
+	const float SearchEpsilon = FMath::Max(MoveSettings.MoveSolverTolerance, KINDA_SMALL_NUMBER);
 	const float SearchEpsilonSquared = FMath::Square(SearchEpsilon);
 	if (FVector::DistSquared(PrevNode.WorldLocation, CurrentNode.WorldLocation) <= SearchEpsilonSquared ||
 		FVector::DistSquared(CurrentNode.WorldLocation, NextNode.WorldLocation) <= SearchEpsilonSquared)
@@ -265,7 +448,7 @@ bool FRayRopeMoveSolver::TryTraceMoveHit(
 	if (!IsValid(TraceContext.World) ||
 		StartNode.WorldLocation.ContainsNaN() ||
 		EndNode.WorldLocation.ContainsNaN() ||
-		StartNode.WorldLocation.Equals(EndNode.WorldLocation, MoveSettings.MoveSolverEpsilon))
+		StartNode.WorldLocation.Equals(EndNode.WorldLocation, MoveSettings.MoveSolverTolerance))
 	{
 		return false;
 	}
@@ -306,7 +489,7 @@ bool FRayRopeMoveSolver::TryFindPlaneIntersectionRailDirection(
 
 	const FVector RailDirection = FVector::CrossProduct(FirstNormal, SecondNormal);
 	const float RailDirectionSizeSquared = RailDirection.SizeSquared();
-	if (RailDirectionSizeSquared <= FMath::Square(MoveSettings.PlaneParallelEpsilon))
+	if (RailDirectionSizeSquared <= FMath::Square(MoveSettings.PlaneParallelTolerance))
 	{
 		return false;
 	}
@@ -359,238 +542,32 @@ bool FRayRopeMoveSolver::TryFindEffectivePointOnRail(
 		return false;
 	}
 
-	FEffectivePointSearchState SearchState;
-	SearchState.LeftRailParameter = FMath::Min(PrevRailParameter, NextRailParameter);
-	SearchState.RightRailParameter = FMath::Max(PrevRailParameter, NextRailParameter);
-	SearchState.BestCandidate.RailParameter = 0.f;
-	SearchState.BestCandidate.Location = CurrentNode.WorldLocation;
-	SearchState.BestCandidate.DistanceSum = CalculateEffectivePointDistanceSum(
-		PrevNode.WorldLocation,
-		CurrentNode.WorldLocation,
-		NextNode.WorldLocation);
-
-	const float InitialMidRailParameter =
-		(SearchState.LeftRailParameter + SearchState.RightRailParameter) * 0.5f;
-
-	FEffectivePointCandidate InitialMidCandidate;
-	bool bHasBlockingHit = false;
-	if (!TryEvaluateEffectivePointCandidate(
+	const FMoveRailSearchContext SearchContext{
 		TraceContext,
-		NormalizedRailDirection,
+		MoveSettings,
 		PrevNode,
 		CurrentNode,
 		NextNode,
-		InitialMidRailParameter,
-		InitialMidCandidate,
-		bHasBlockingHit))
+		NormalizedRailDirection
+	};
+
+	const float LeftRailParameter = FMath::Min(0.f, FMath::Min(PrevRailParameter, NextRailParameter));
+	const float RightRailParameter = FMath::Max(0.f, FMath::Max(PrevRailParameter, NextRailParameter));
+	const float TargetRailParameter = FindBestRailParameter(
+		SearchContext,
+		LeftRailParameter,
+		RightRailParameter);
+
+	float ReachableRailParameter = 0.f;
+	if (!TryClampRailParameterToReachablePath(SearchContext, TargetRailParameter, ReachableRailParameter))
 	{
 		return false;
 	}
 
-	if (bHasBlockingHit)
-	{
-		OutEffectivePoint = CalculateRailPoint(
-			CurrentNode.WorldLocation,
-			NormalizedRailDirection,
-			SearchState.BestCandidate.RailParameter);
-		return true;
-	}
-
-	SaveBetterEffectivePointCandidate(InitialMidCandidate, SearchState);
-
-	const float SearchEpsilon = FMath::Max(
-		MoveSettings.EffectivePointSearchEpsilon,
-		MoveSettings.MoveSolverEpsilon);
-	const int32 MaxIterations = FMath::Max(0, MoveSettings.MaxEffectivePointSearchIterations);
-
-	for (int32 Iteration = 0; Iteration < MaxIterations; ++Iteration)
-	{
-		const float SegmentLength =
-			FMath::Abs(SearchState.RightRailParameter - SearchState.LeftRailParameter);
-		if (SegmentLength <= SearchEpsilon)
-		{
-			break;
-		}
-
-		const float MidRailParameter =
-			(SearchState.LeftRailParameter + SearchState.RightRailParameter) * 0.5f;
-		const float LeftMidRailParameter =
-			(SearchState.LeftRailParameter + MidRailParameter) * 0.5f;
-		const float RightMidRailParameter =
-			(MidRailParameter + SearchState.RightRailParameter) * 0.5f;
-
-		FEffectivePointCandidate LeftMidCandidate;
-		if (!TryEvaluateEffectivePointCandidate(
-			TraceContext,
-			NormalizedRailDirection,
-			PrevNode,
-			CurrentNode,
-			NextNode,
-			LeftMidRailParameter,
-			LeftMidCandidate,
-			bHasBlockingHit))
-		{
-			return false;
-		}
-
-		if (bHasBlockingHit)
-		{
-			OutEffectivePoint = CalculateRailPoint(
-				CurrentNode.WorldLocation,
-				NormalizedRailDirection,
-				SearchState.BestCandidate.RailParameter);
-			return true;
-		}
-
-		SaveBetterEffectivePointCandidate(LeftMidCandidate, SearchState);
-
-		FEffectivePointCandidate RightMidCandidate;
-		if (!TryEvaluateEffectivePointCandidate(
-			TraceContext,
-			NormalizedRailDirection,
-			PrevNode,
-			CurrentNode,
-			NextNode,
-			RightMidRailParameter,
-			RightMidCandidate,
-			bHasBlockingHit))
-		{
-			return false;
-		}
-
-		if (bHasBlockingHit)
-		{
-			OutEffectivePoint = CalculateRailPoint(
-				CurrentNode.WorldLocation,
-				NormalizedRailDirection,
-				SearchState.BestCandidate.RailParameter);
-			return true;
-		}
-
-		SaveBetterEffectivePointCandidate(RightMidCandidate, SearchState);
-
-		if (LeftMidCandidate.DistanceSum <= RightMidCandidate.DistanceSum)
-		{
-			SearchState.RightRailParameter = MidRailParameter;
-		}
-		else
-		{
-			SearchState.LeftRailParameter = MidRailParameter;
-		}
-	}
-
-	OutEffectivePoint = CalculateRailPoint(
-		CurrentNode.WorldLocation,
-		NormalizedRailDirection,
-		SearchState.BestCandidate.RailParameter);
-
+	OutEffectivePoint = GetRailPoint(
+		SearchContext,
+		ReachableRailParameter);
 	return !OutEffectivePoint.ContainsNaN();
-}
-
-FVector FRayRopeMoveSolver::CalculateRailPoint(
-	const FVector& CurrentLocation,
-	const FVector& NormalizedRailDirection,
-	float RailParameter)
-{
-	return CurrentLocation + NormalizedRailDirection * RailParameter;
-}
-
-float FRayRopeMoveSolver::CalculateEffectivePointDistanceSum(
-	const FVector& PrevLocation,
-	const FVector& CandidateLocation,
-	const FVector& NextLocation)
-{
-	return FVector::Dist(PrevLocation, CandidateLocation) +
-		FVector::Dist(CandidateLocation, NextLocation);
-}
-
-bool FRayRopeMoveSolver::TryEvaluateEffectivePointCandidate(
-	const FRayRopeTraceContext& TraceContext,
-	const FVector& NormalizedRailDirection,
-	const FRayRopeNode& PrevNode,
-	const FRayRopeNode& CurrentNode,
-	const FRayRopeNode& NextNode,
-	float RailParameter,
-	FEffectivePointCandidate& OutCandidate,
-	bool& bOutHasBlockingHit)
-{
-	OutCandidate = FEffectivePointCandidate();
-	bOutHasBlockingHit = false;
-
-	if (!FMath::IsFinite(RailParameter) ||
-		NormalizedRailDirection.ContainsNaN() ||
-		NormalizedRailDirection.IsNearlyZero())
-	{
-		return false;
-	}
-
-	OutCandidate.RailParameter = RailParameter;
-	OutCandidate.Location = CalculateRailPoint(
-		CurrentNode.WorldLocation,
-		NormalizedRailDirection,
-		RailParameter);
-
-	if (OutCandidate.Location.ContainsNaN())
-	{
-		return false;
-	}
-
-	const FRayRopeNode CandidateNode = CreateMovePointNode(OutCandidate.Location);
-	bOutHasBlockingHit = HasEffectivePointBlockingHit(
-		TraceContext,
-		PrevNode,
-		CandidateNode,
-		NextNode);
-
-	if (bOutHasBlockingHit)
-	{
-		return true;
-	}
-
-	OutCandidate.DistanceSum = CalculateEffectivePointDistanceSum(
-		PrevNode.WorldLocation,
-		OutCandidate.Location,
-		NextNode.WorldLocation);
-
-	return FMath::IsFinite(OutCandidate.DistanceSum);
-}
-
-bool FRayRopeMoveSolver::HasEffectivePointBlockingHit(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeNode& PrevNode,
-	const FRayRopeNode& CandidateNode,
-	const FRayRopeNode& NextNode)
-{
-	return HasBlockingHitBetween(TraceContext, PrevNode, CandidateNode) ||
-		HasBlockingHitBetween(TraceContext, CandidateNode, NextNode);
-}
-
-bool FRayRopeMoveSolver::HasBlockingHitBetween(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeNode& StartNode,
-	const FRayRopeNode& EndNode)
-{
-	if (!IsValid(TraceContext.World) ||
-		StartNode.WorldLocation.ContainsNaN() ||
-		EndNode.WorldLocation.ContainsNaN() ||
-		StartNode.WorldLocation.Equals(EndNode.WorldLocation, KINDA_SMALL_NUMBER))
-	{
-		return false;
-	}
-
-	FHitResult Hit;
-	const FRayRopeSpan TraceSpan{&StartNode, &EndNode};
-	return FRayRopeTrace::TryTraceSpan(TraceContext, TraceSpan, Hit);
-}
-
-void FRayRopeMoveSolver::SaveBetterEffectivePointCandidate(
-	const FEffectivePointCandidate& Candidate,
-	FEffectivePointSearchState& SearchState)
-{
-	if (Candidate.DistanceSum < SearchState.BestCandidate.DistanceSum)
-	{
-		SearchState.BestCandidate = Candidate;
-	}
 }
 
 FRayRopeNode FRayRopeMoveSolver::CreateMovePointNode(const FVector& WorldLocation)

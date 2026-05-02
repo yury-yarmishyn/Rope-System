@@ -61,7 +61,7 @@ FVector FRayRopeWrapGeometry::CalculateRedirectOffset(
 {
 	if (BackSurfaceHit == nullptr)
 	{
-		return FrontSurfaceHit.ImpactNormal.GetSafeNormal() * WrapSettings.WrapOffset;
+		return FrontSurfaceHit.ImpactNormal.GetSafeNormal() * WrapSettings.WrapSurfaceOffset;
 	}
 
 	FVector OffsetDirection = FrontSurfaceHit.ImpactNormal + BackSurfaceHit->ImpactNormal;
@@ -70,7 +70,7 @@ FVector FRayRopeWrapGeometry::CalculateRedirectOffset(
 		OffsetDirection = FrontSurfaceHit.ImpactNormal;
 	}
 
-	return OffsetDirection.GetSafeNormal() * WrapSettings.WrapOffset;
+	return OffsetDirection.GetSafeNormal() * WrapSettings.WrapSurfaceOffset;
 }
 
 FVector FRayRopeWrapGeometry::CalculateProjectedPointOnHitPlane(

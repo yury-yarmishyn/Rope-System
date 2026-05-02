@@ -36,18 +36,18 @@ void FRayRopeNodeResolver::SyncAnchorNode(FRayRopeNode& Node)
 		return;
 	}
 
-	if (!IsValid(Node.AttachActor))
+	if (!IsValid(Node.AttachedActor))
 	{
 		Node.CachedAnchorComponent = nullptr;
 		Node.CachedAnchorSocketName = NAME_None;
 		return;
 	}
 
-	if (!Node.AttachActor->GetClass()->ImplementsInterface(URayRopeInterface::StaticClass()))
+	if (!Node.AttachedActor->GetClass()->ImplementsInterface(URayRopeInterface::StaticClass()))
 	{
 		Node.CachedAnchorComponent = nullptr;
 		Node.CachedAnchorSocketName = NAME_None;
-		Node.WorldLocation = Node.AttachActor->GetActorLocation();
+		Node.WorldLocation = Node.AttachedActor->GetActorLocation();
 		return;
 	}
 
@@ -61,32 +61,32 @@ void FRayRopeNodeResolver::SyncAnchorNode(FRayRopeNode& Node)
 
 void FRayRopeNodeResolver::SyncRedirectNode(FRayRopeNode& Node)
 {
-	if (Node.NodeType != ERayRopeNodeType::Redirect || !IsValid(Node.AttachActor))
+	if (Node.NodeType != ERayRopeNodeType::Redirect || !IsValid(Node.AttachedActor))
 	{
 		return;
 	}
 
-	if (!Node.bUseAttachActorOffset)
+	if (!Node.bUseAttachedActorOffset)
 	{
-		CacheAttachActorOffset(Node);
+		CacheAttachedActorOffset(Node);
 	}
 
 	Node.WorldLocation =
-		Node.AttachActor->GetActorTransform().TransformPosition(Node.AttachActorOffset);
+		Node.AttachedActor->GetActorTransform().TransformPosition(Node.AttachedActorOffset);
 }
 
-void FRayRopeNodeResolver::CacheAttachActorOffset(FRayRopeNode& Node)
+void FRayRopeNodeResolver::CacheAttachedActorOffset(FRayRopeNode& Node)
 {
-	if (!IsValid(Node.AttachActor))
+	if (!IsValid(Node.AttachedActor))
 	{
-		Node.bUseAttachActorOffset = false;
-		Node.AttachActorOffset = FVector::ZeroVector;
+		Node.bUseAttachedActorOffset = false;
+		Node.AttachedActorOffset = FVector::ZeroVector;
 		return;
 	}
 
-	Node.bUseAttachActorOffset = true;
-	Node.AttachActorOffset =
-		Node.AttachActor->GetActorTransform().InverseTransformPosition(Node.WorldLocation);
+	Node.bUseAttachedActorOffset = true;
+	Node.AttachedActorOffset =
+		Node.AttachedActor->GetActorTransform().InverseTransformPosition(Node.WorldLocation);
 }
 
 void FRayRopeNodeResolver::CacheAnchorTarget(FRayRopeNode& Node)
@@ -94,32 +94,32 @@ void FRayRopeNodeResolver::CacheAnchorTarget(FRayRopeNode& Node)
 	Node.CachedAnchorComponent = nullptr;
 	Node.CachedAnchorSocketName = NAME_None;
 
-	if (!IsValid(Node.AttachActor) ||
-		!Node.AttachActor->GetClass()->ImplementsInterface(URayRopeInterface::StaticClass()))
+	if (!IsValid(Node.AttachedActor) ||
+		!Node.AttachedActor->GetClass()->ImplementsInterface(URayRopeInterface::StaticClass()))
 	{
 		return;
 	}
 
-	USceneComponent* AnchorComponent = IRayRopeInterface::Execute_GetAnchorComponent(Node.AttachActor);
+	USceneComponent* AnchorComponent = IRayRopeInterface::Execute_GetAnchorComponent(Node.AttachedActor);
 	if (!IsValid(AnchorComponent))
 	{
 		return;
 	}
 
 	Node.CachedAnchorComponent = AnchorComponent;
-	Node.CachedAnchorSocketName = IRayRopeInterface::Execute_GetAnchorSocketName(Node.AttachActor);
+	Node.CachedAnchorSocketName = IRayRopeInterface::Execute_GetAnchorSocketName(Node.AttachedActor);
 }
 
 FVector FRayRopeNodeResolver::GetAnchorWorldLocation(const FRayRopeNode& Node)
 {
-	if (!IsValid(Node.AttachActor))
+	if (!IsValid(Node.AttachedActor))
 	{
 		return Node.WorldLocation;
 	}
 
 	if (!IsValid(Node.CachedAnchorComponent))
 	{
-		return Node.AttachActor->GetActorLocation();
+		return Node.AttachedActor->GetActorLocation();
 	}
 
 	return Node.CachedAnchorSocketName != NAME_None &&
@@ -132,7 +132,7 @@ FRayRopeNode FRayRopeNodeResolver::CreateAnchorNode(AActor* AnchorActor)
 {
 	FRayRopeNode AnchorNode;
 	AnchorNode.NodeType = ERayRopeNodeType::Anchor;
-	AnchorNode.AttachActor = AnchorActor;
+	AnchorNode.AttachedActor = AnchorActor;
 	SyncAnchorNode(AnchorNode);
 	return AnchorNode;
 }

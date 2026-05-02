@@ -62,8 +62,8 @@ struct FRayRopeTraceContext
 struct FRayRopeWrapSettings
 {
 	bool bAllowWrapOnMovableObjects = false;
-	int32 MaxBinarySearchIteration = 0;
-	float WrapSolverEpsilon = 0.f;
-	float GeometryCollinearEpsilon = 0.f;
-	float WrapOffset = 0.f;
+	int32 MaxWrapBinarySearchIterations = 0;
+	float WrapSolverTolerance = 0.f;
+	float GeometryCollinearityTolerance = 0.f;
+	float WrapSurfaceOffset = 0.f;
 };

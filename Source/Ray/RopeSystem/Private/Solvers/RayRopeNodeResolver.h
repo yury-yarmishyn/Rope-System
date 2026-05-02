@@ -11,7 +11,7 @@ struct FRayRopeNodeResolver
 	static void SyncNode(FRayRopeNode& Node);
 	static void SyncAnchorNode(FRayRopeNode& Node);
 	static void SyncRedirectNode(FRayRopeNode& Node);
-	static void CacheAttachActorOffset(FRayRopeNode& Node);
+	static void CacheAttachedActorOffset(FRayRopeNode& Node);
 	static void CacheAnchorTarget(FRayRopeNode& Node);
 	static FVector GetAnchorWorldLocation(const FRayRopeNode& Node);
 	static FRayRopeNode CreateAnchorNode(AActor* AnchorActor);

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "RayRopeInternalTypes.h"
+#include "RayRopeTypes.h"
 
 class AActor;
 
@@ -16,21 +16,4 @@ struct FRayRopePhysicsSolver
 		AActor* OwnerActor,
 		const TArray<FRayRopeSegment>& Segments,
 		const FRayRopePhysicsSettings& PhysicsSettings);
-
-private:
-	static bool TryGetOwnerTerminalNodes(
-		AActor* OwnerActor,
-		const TArray<FRayRopeSegment>& Segments,
-		const FRayRopeNode*& OutOwnerNode,
-		const FRayRopeNode*& OutAdjacentNode);
-
-	static bool ClampOwnerAnchorToMaxRopeLength(
-		AActor* OwnerActor,
-		const FRayRopePhysicsSettings& PhysicsSettings,
-		const FRayRopeNode& OwnerNode,
-		const FRayRopeNode& AdjacentNode);
-
-	static void RemoveOwnerOutwardVelocity(
-		AActor* OwnerActor,
-		const FVector& OutwardDirection);
 };

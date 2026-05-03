@@ -1,65 +1,162 @@
 #include "RayRopeComponent.h"
 
+#include "Helpers/RayRopeDebug.h"
+#include "Helpers/RayRopeNodeSynchronizer.h"
+#include "Helpers/RayRopeSegmentTopology.h"
 #include "Solvers/RayRopeMoveSolver.h"
-#include "Solvers/RayRopeNodeResolver.h"
 #include "Solvers/RayRopePhysicsSolver.h"
-#include "Solvers/RayRopeTopology.h"
+#include "Solvers/RayRopeRelaxSolver.h"
 #include "Solvers/RayRopeWrapSolver.h"
-
-#include "DrawDebugHelpers.h"
-#include "Engine/World.h"
-#include "GameFramework/Actor.h"
 
 namespace
 {
-FColor ToDebugColor(const FLinearColor& Color)
+bool TryBuild(
+	const FRayRopeTraceSettings& TraceSettings,
+	const TArray<AActor*>& AnchorActors,
+	TArray<FRayRopeSegment>& OutSegments)
 {
-	return Color.ToFColor(true);
+	OutSegments.Reset();
+
+	if (!IsValid(TraceSettings.World) || AnchorActors.Num() < 2)
+	{
+		return false;
+	}
+
+	OutSegments.Reserve(AnchorActors.Num() - 1);
+	const FRayRopeTraceContext TraceContext = FRayRopeTrace::MakeTraceContext(
+		TraceSettings,
+		FCollisionQueryParams(SCENE_QUERY_STAT(RayRopeStartTrace)));
+
+	for (int32 AnchorIndex = 0; AnchorIndex < AnchorActors.Num() - 1; ++AnchorIndex)
+	{
+		AActor* StartAnchorActor = AnchorActors[AnchorIndex];
+		AActor* EndAnchorActor = AnchorActors[AnchorIndex + 1];
+		if (!IsValid(StartAnchorActor) ||
+			!IsValid(EndAnchorActor) ||
+			StartAnchorActor == EndAnchorActor)
+		{
+			OutSegments.Reset();
+			return false;
+		}
+
+		FRayRopeSegment BaseSegment;
+		BaseSegment.Nodes.Reserve(2);
+		BaseSegment.Nodes.Add(FRayRopeNodeSynchronizer::CreateAnchorNode(StartAnchorActor));
+		BaseSegment.Nodes.Add(FRayRopeNodeSynchronizer::CreateAnchorNode(EndAnchorActor));
+
+		FRayRopeSpan BaseSpan;
+		if (!FRayRopeSegmentTopology::TryGetSegmentSpan(BaseSegment, 0, BaseSpan) ||
+			BaseSpan.IsDegenerate(KINDA_SMALL_NUMBER) ||
+			FRayRopeTrace::HasBlockingSpanHit(TraceContext, BaseSpan))
+		{
+			OutSegments.Reset();
+			return false;
+		}
+
+		OutSegments.Add(MoveTemp(BaseSegment));
+	}
+
+	return OutSegments.Num() > 0;
 }
 
-const TCHAR* GetRopeNodeTypeName(ERayRopeNodeType NodeType)
+FRayRopeTraceSettings MakeTraceSettings(const URayRopeComponent& Component)
 {
-	switch (NodeType)
+	FRayRopeTraceSettings TraceSettings;
+	TraceSettings.World = Component.GetWorld();
+	TraceSettings.OwnerActor = Component.GetOwner();
+	TraceSettings.TraceChannel = Component.TraceChannel;
+	TraceSettings.bTraceComplex = Component.bTraceComplex;
+	return TraceSettings;
+}
+
+FRayRopeNodeBuildSettings MakeNodeBuildSettings(const URayRopeComponent& Component)
+{
+	FRayRopeNodeBuildSettings Settings;
+	Settings.bAllowWrapOnMovableObjects = Component.bAllowWrapOnMovableObjects;
+	Settings.MaxWrapBinarySearchIterations = Component.MaxWrapBinarySearchIterations;
+	Settings.WrapSolverTolerance = Component.WrapSolverTolerance;
+	Settings.GeometryCollinearityTolerance = Component.GeometryCollinearityTolerance;
+	Settings.WrapSurfaceOffset = Component.WrapSurfaceOffset;
+	return Settings;
+}
+
+FRayRopeWrapSettings MakeWrapSettings(const URayRopeComponent& Component)
+{
+	FRayRopeWrapSettings WrapSettings;
+	static_cast<FRayRopeNodeBuildSettings&>(WrapSettings) = MakeNodeBuildSettings(Component);
+	return WrapSettings;
+}
+
+FRayRopeMoveSettings MakeMoveSettings(const URayRopeComponent& Component)
+{
+	FRayRopeMoveSettings MoveSettings;
+	MoveSettings.NodeBuildSettings = MakeNodeBuildSettings(Component);
+	MoveSettings.MoveSolverTolerance = Component.MoveSolverTolerance;
+	MoveSettings.PlaneParallelTolerance = Component.MovePlaneParallelTolerance;
+	MoveSettings.EffectivePointSearchTolerance = Component.MoveEffectivePointSearchTolerance;
+	MoveSettings.SurfaceOffset = Component.WrapSurfaceOffset;
+	MoveSettings.MaxMoveIterations = Component.MaxMoveIterations;
+	MoveSettings.MaxEffectivePointSearchIterations = Component.MaxEffectivePointSearchIterations;
+	return MoveSettings;
+}
+
+FRayRopeRelaxSettings MakeRelaxSettings(const URayRopeComponent& Component)
+{
+	FRayRopeRelaxSettings RelaxSettings;
+	RelaxSettings.RelaxSolverTolerance = Component.RelaxSolverTolerance;
+	RelaxSettings.MaxRelaxCollapseIterations = Component.MaxRelaxCollapseIterations;
+	return RelaxSettings;
+}
+
+FRayRopePhysicsSettings MakePhysicsSettings(const URayRopeComponent& Component)
+{
+	FRayRopePhysicsSettings PhysicsSettings;
+	PhysicsSettings.CurrentRopeLength = Component.CurrentRopeLength;
+	PhysicsSettings.MaxAllowedRopeLength = Component.MaxAllowedRopeLength;
+	return PhysicsSettings;
+}
+
+void SolveSegmentWithSettings(
+	FRayRopeSegment& Segment,
+	int32 SegmentIndex,
+	const FRayRopeTraceSettings& TraceSettings,
+	const FRayRopeWrapSettings& WrapSettings,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeRelaxSettings& RelaxSettings,
+	TArray<FRayRopeNode>& ReferenceNodes,
+	bool bLogNodeCountChanges)
+{
+	const int32 InitialNodeCount = Segment.Nodes.Num();
+	ReferenceNodes.Reset(InitialNodeCount);
+	ReferenceNodes.Append(Segment.Nodes);
+
+	FRayRopeNodeSynchronizer::SyncSegmentNodes(Segment);
+	FRayRopeWrapSolver::WrapSegment(TraceSettings, WrapSettings, Segment, ReferenceNodes);
+
+	ReferenceNodes.Reset(Segment.Nodes.Num());
+	ReferenceNodes.Append(Segment.Nodes);
+	FRayRopeMoveSolver::MoveSegment(TraceSettings, MoveSettings, Segment);
+	if (ReferenceNodes.Num() != Segment.Nodes.Num())
 	{
-	case ERayRopeNodeType::Anchor:
-		return TEXT("Anchor");
+		ReferenceNodes.Reset(Segment.Nodes.Num());
+		ReferenceNodes.Append(Segment.Nodes);
+	}
+	FRayRopeWrapSolver::WrapSegment(TraceSettings, WrapSettings, Segment, ReferenceNodes);
 
-	case ERayRopeNodeType::Redirect:
-		return TEXT("Redirect");
+	FRayRopeRelaxSolver::RelaxSegment(TraceSettings, RelaxSettings, Segment);
 
-	default:
-		return TEXT("Unknown");
+	if (bLogNodeCountChanges && Segment.Nodes.Num() != InitialNodeCount)
+	{
+		UE_LOG(
+			LogRayRope,
+			Log,
+			TEXT("[Debug] SolveSegment[%d] node count changed: %d -> %d"),
+			SegmentIndex,
+			InitialNodeCount,
+			Segment.Nodes.Num());
 	}
 }
 
-float CalculateSegmentLength(const FRayRopeSegment& Segment)
-{
-	float SegmentLength = 0.f;
-	for (int32 NodeIndex = 1; NodeIndex < Segment.Nodes.Num(); ++NodeIndex)
-	{
-		SegmentLength += FVector::Dist(
-			Segment.Nodes[NodeIndex - 1].WorldLocation,
-			Segment.Nodes[NodeIndex].WorldLocation);
-	}
-
-	return SegmentLength;
-}
-
-FVector CalculateSegmentCenter(const FRayRopeSegment& Segment)
-{
-	if (Segment.Nodes.Num() == 0)
-	{
-		return FVector::ZeroVector;
-	}
-
-	FVector Center = FVector::ZeroVector;
-	for (const FRayRopeNode& Node : Segment.Nodes)
-	{
-		Center += Node.WorldLocation;
-	}
-
-	return Center / static_cast<float>(Segment.Nodes.Num());
-}
 }
 
 URayRopeComponent::URayRopeComponent()
@@ -112,15 +209,9 @@ void URayRopeComponent::TickComponent(
 
 bool URayRopeComponent::TryStartRopeSolve(const TArray<AActor*>& AnchorActors)
 {
-	FRayRopeTraceSettings TraceSettings;
-	TraceSettings.World = GetWorld();
-	TraceSettings.OwnerActor = GetOwner();
-	TraceSettings.TraceChannel = TraceChannel;
-	TraceSettings.bTraceComplex = bTraceComplex;
-
 	TArray<FRayRopeSegment> BaseSegments;
-	if (!FRayRopeTopology::TryBuildBaseSegments(
-		TraceSettings,
+	if (!TryBuild(
+		MakeTraceSettings(*this),
 		AnchorActors,
 		BaseSegments))
 	{
@@ -268,25 +359,21 @@ void URayRopeComponent::SyncRopeNodes()
 {
 	for (FRayRopeSegment& Segment : RopeSegments)
 	{
-		FRayRopeNodeResolver::SyncSegmentNodes(Segment);
+		FRayRopeNodeSynchronizer::SyncSegmentNodes(Segment);
 	}
 }
 
 void URayRopeComponent::RefreshRopeLength()
 {
-	CurrentRopeLength = FRayRopeTopology::CalculateRopeLength(RopeSegments);
+	CurrentRopeLength = FRayRopeSegmentTopology::CalculateRopeLength(RopeSegments);
 }
 
 bool URayRopeComponent::ApplyRopeRuntimeEffects()
 {
-	FRayRopePhysicsSettings PhysicsSettings;
-	PhysicsSettings.CurrentRopeLength = CurrentRopeLength;
-	PhysicsSettings.MaxAllowedRopeLength = MaxAllowedRopeLength;
-
 	return FRayRopePhysicsSolver::Solve(
 		GetOwner(),
 		RopeSegments,
-		PhysicsSettings);
+		MakePhysicsSettings(*this));
 }
 
 void URayRopeComponent::SolveRope()
@@ -296,6 +383,12 @@ void URayRopeComponent::SolveRope()
 		return;
 	}
 
+	const FRayRopeTraceSettings TraceSettings = MakeTraceSettings(*this);
+	const FRayRopeWrapSettings WrapSettings = MakeWrapSettings(*this);
+	const FRayRopeMoveSettings MoveSettings = MakeMoveSettings(*this);
+	const FRayRopeRelaxSettings RelaxSettings = MakeRelaxSettings(*this);
+	const bool bLogNodeCountChanges = IsDebugLogEnabled();
+
 	for (int32 SegmentIndex = 0; SegmentIndex < RopeSegments.Num(); ++SegmentIndex)
 	{
 		FRayRopeSegment& Segment = RopeSegments[SegmentIndex];
@@ -304,61 +397,38 @@ void URayRopeComponent::SolveRope()
 			continue;
 		}
 
-		SolveSegment(Segment, SegmentIndex);
+		SolveSegmentWithSettings(
+			Segment,
+			SegmentIndex,
+			TraceSettings,
+			WrapSettings,
+			MoveSettings,
+			RelaxSettings,
+			ReferenceNodesScratch,
+			bLogNodeCountChanges);
 	}
 
+	ReferenceNodesScratch.Reset();
 	FinalizeSolve();
 }
 
 void URayRopeComponent::SolveSegment(FRayRopeSegment& Segment, int32 SegmentIndex) const
 {
-	FRayRopeTraceSettings TraceSettings;
-	TraceSettings.World = GetWorld();
-	TraceSettings.OwnerActor = GetOwner();
-	TraceSettings.TraceChannel = TraceChannel;
-	TraceSettings.bTraceComplex = bTraceComplex;
-
-	FRayRopeWrapSettings WrapSettings;
-	WrapSettings.bAllowWrapOnMovableObjects = bAllowWrapOnMovableObjects;
-	WrapSettings.MaxWrapBinarySearchIterations = MaxWrapBinarySearchIterations;
-	WrapSettings.WrapSolverTolerance = WrapSolverTolerance;
-	WrapSettings.GeometryCollinearityTolerance = RelaxCollinearityTolerance;
-	WrapSettings.WrapSurfaceOffset = WrapSurfaceOffset;
-
-	FRayRopeMoveSettings MoveSettings;
-	MoveSettings.MoveSolverTolerance = MoveSolverTolerance;
-	MoveSettings.PlaneParallelTolerance = MovePlaneParallelTolerance;
-	MoveSettings.EffectivePointSearchTolerance = MoveEffectivePointSearchTolerance;
-	MoveSettings.MaxMoveIterations = MaxMoveIterations;
-	MoveSettings.MaxEffectivePointSearchIterations = MaxEffectivePointSearchIterations;
-
-	FRayRopeRelaxSettings RelaxSettings;
-	RelaxSettings.RelaxSolverTolerance = RelaxSolverTolerance;
-	RelaxSettings.RelaxCollinearityTolerance = RelaxCollinearityTolerance;
-	RelaxSettings.MaxRelaxCollapseIterations = MaxRelaxCollapseIterations;
-
-	const int32 InitialNodeCount = Segment.Nodes.Num();
-	const FRayRopeSegment ReferenceSegment = Segment;
-	FRayRopeNodeResolver::SyncSegmentNodes(Segment);
-	FRayRopeMoveSolver::MoveSegment(TraceSettings, MoveSettings, Segment);
-	FRayRopeWrapSolver::WrapSegment(TraceSettings, WrapSettings, Segment, ReferenceSegment);
-	FRayRopeTopology::RelaxSegment(TraceSettings, RelaxSettings, Segment);
-
-	if (IsDebugLogEnabled() && Segment.Nodes.Num() != InitialNodeCount)
-	{
-		UE_LOG(
-			LogRayRope,
-			Log,
-			TEXT("[Debug] SolveSegment[%d] node count changed: %d -> %d"),
-			SegmentIndex,
-			InitialNodeCount,
-			Segment.Nodes.Num());
-	}
+	TArray<FRayRopeNode> ReferenceNodes;
+	SolveSegmentWithSettings(
+		Segment,
+		SegmentIndex,
+		MakeTraceSettings(*this),
+		MakeWrapSettings(*this),
+		MakeMoveSettings(*this),
+		MakeRelaxSettings(*this),
+		ReferenceNodes,
+		IsDebugLogEnabled());
 }
 
 void URayRopeComponent::FinalizeSolve()
 {
-	FRayRopeTopology::SplitSegmentsOnAnchors(RopeSegments);
+	FRayRopeSegmentTopology::SplitSegmentsOnAnchors(RopeSegments);
 	RefreshRopeLength();
 }
 
@@ -385,145 +455,14 @@ void URayRopeComponent::DrawDebugRope() const
 		return;
 	}
 
-	UWorld* World = GetWorld();
-	if (World == nullptr)
-	{
-		return;
-	}
-
-	const float LifeTime = FMath::Max(0.f, RopeDebugSettings.DebugDrawLifetime);
-	const int32 NodeSegments = FMath::Max(4, RopeDebugSettings.DebugNodeSphereSegments);
-	const float NodeRadius = FMath::Max(0.f, RopeDebugSettings.DebugNodeRadius);
-	const float SegmentThickness = FMath::Max(0.f, RopeDebugSettings.DebugSegmentThickness);
-	const float AttachmentLinkThickness = FMath::Max(0.f, RopeDebugSettings.DebugAttachmentLinkThickness);
-	const FColor OwnerColor = ToDebugColor(RopeDebugSettings.DebugOwnerColor);
-	const FColor SegmentColor = ToDebugColor(RopeDebugSettings.DebugSegmentColor);
-	const FColor AnchorNodeColor = ToDebugColor(RopeDebugSettings.DebugAnchorNodeColor);
-	const FColor RedirectNodeColor = ToDebugColor(RopeDebugSettings.DebugRedirectNodeColor);
-	const FColor AttachmentLinkColor = ToDebugColor(RopeDebugSettings.DebugAttachmentLinkColor);
-
-	if (const AActor* OwnerActor = GetOwner())
-	{
-		const FVector OwnerLocation = OwnerActor->GetActorLocation();
-		DrawDebugCoordinateSystem(
-			World,
-			OwnerLocation,
-			OwnerActor->GetActorRotation(),
-			FMath::Max(0.f, RopeDebugSettings.DebugOwnerAxisLength),
-			false,
-			LifeTime,
-			0,
-			SegmentThickness);
-
-		DrawDebugSphere(
-			World,
-			OwnerLocation,
-			FMath::Max(1.f, NodeRadius * 0.5f),
-			NodeSegments,
-			OwnerColor,
-			false,
-			LifeTime,
-			0,
-			SegmentThickness);
-
-		if (RopeDebugSettings.bDrawDebugLabels)
-		{
-			DrawDebugString(
-				World,
-				OwnerLocation + FVector(0.f, 0.f, NodeRadius * 2.f),
-				FString::Printf(
-					TEXT("RopeComponent RopeSegments:%d Length:%.1f/%.1f %s"),
-					RopeSegments.Num(),
-					CurrentRopeLength,
-					MaxAllowedRopeLength,
-					bIsRopeSolving ? TEXT("Solving") : TEXT("Idle")),
-				nullptr,
-				OwnerColor,
-				LifeTime,
-				true);
-		}
-	}
-
-	for (int32 SegmentIndex = 0; SegmentIndex < RopeSegments.Num(); ++SegmentIndex)
-	{
-		const FRayRopeSegment& Segment = RopeSegments[SegmentIndex];
-		for (int32 NodeIndex = 1; NodeIndex < Segment.Nodes.Num(); ++NodeIndex)
-		{
-			DrawDebugLine(
-				World,
-				Segment.Nodes[NodeIndex - 1].WorldLocation,
-				Segment.Nodes[NodeIndex].WorldLocation,
-				SegmentColor,
-				false,
-				LifeTime,
-				0,
-				SegmentThickness);
-		}
-
-		if (RopeDebugSettings.bDrawDebugLabels && Segment.Nodes.Num() > 0)
-		{
-			DrawDebugString(
-				World,
-				CalculateSegmentCenter(Segment),
-				FString::Printf(
-					TEXT("Segment[%d] Nodes:%d Length:%.1f"),
-					SegmentIndex,
-					Segment.Nodes.Num(),
-					CalculateSegmentLength(Segment)),
-				nullptr,
-				SegmentColor,
-				LifeTime,
-				true);
-		}
-
-		for (int32 NodeIndex = 0; NodeIndex < Segment.Nodes.Num(); ++NodeIndex)
-		{
-			const FRayRopeNode& Node = Segment.Nodes[NodeIndex];
-			const FColor NodeColor = Node.NodeType == ERayRopeNodeType::Anchor
-				? AnchorNodeColor
-				: RedirectNodeColor;
-
-			DrawDebugSphere(
-				World,
-				Node.WorldLocation,
-				NodeRadius,
-				NodeSegments,
-				NodeColor,
-				false,
-				LifeTime,
-				0,
-				SegmentThickness);
-
-			if (RopeDebugSettings.bDrawDebugAttachmentLinks && IsValid(Node.AttachedActor))
-			{
-				DrawDebugLine(
-					World,
-					Node.WorldLocation,
-					Node.AttachedActor->GetActorLocation(),
-					AttachmentLinkColor,
-					false,
-					LifeTime,
-					0,
-					AttachmentLinkThickness);
-			}
-
-			if (RopeDebugSettings.bDrawDebugLabels)
-			{
-				DrawDebugString(
-					World,
-					Node.WorldLocation + FVector(0.f, 0.f, NodeRadius),
-					FString::Printf(
-						TEXT("S%d N%d %s"),
-						SegmentIndex,
-						NodeIndex,
-						GetRopeNodeTypeName(Node.NodeType)),
-					nullptr,
-					NodeColor,
-					LifeTime,
-					true);
-			}
-		}
-	}
+	FRayRopeDebug::DrawRope(
+		GetWorld(),
+		GetOwner(),
+		RopeSegments,
+		RopeDebugSettings,
+		CurrentRopeLength,
+		MaxAllowedRopeLength,
+		bIsRopeSolving);
 }
 
 void URayRopeComponent::LogDebugRopeState(const TCHAR* Context, bool bForce)
@@ -543,45 +482,11 @@ void URayRopeComponent::LogDebugRopeState(const TCHAR* Context, bool bForce)
 
 	NextDebugLogTimeSeconds = CurrentTime + LogInterval;
 
-	const TCHAR* SafeContext = Context != nullptr ? Context : TEXT("Unknown");
-	UE_LOG(
-		LogRayRope,
-		Log,
-		TEXT("[Debug] %s Owner=%s Solving=%s RopeSegments=%d CurrentRopeLength=%.2f MaxAllowedRopeLength=%.2f"),
-		SafeContext,
-		*GetNameSafe(GetOwner()),
-		bIsRopeSolving ? TEXT("true") : TEXT("false"),
-		RopeSegments.Num(),
+	FRayRopeDebug::LogRopeState(
+		Context,
+		GetOwner(),
+		RopeSegments,
 		CurrentRopeLength,
-		MaxAllowedRopeLength);
-
-	for (int32 SegmentIndex = 0; SegmentIndex < RopeSegments.Num(); ++SegmentIndex)
-	{
-		const FRayRopeSegment& Segment = RopeSegments[SegmentIndex];
-		UE_LOG(
-			LogRayRope,
-			Log,
-			TEXT("[Debug] %s Segment[%d] Nodes=%d Length=%.2f"),
-			SafeContext,
-			SegmentIndex,
-			Segment.Nodes.Num(),
-			CalculateSegmentLength(Segment));
-
-		for (int32 NodeIndex = 0; NodeIndex < Segment.Nodes.Num(); ++NodeIndex)
-		{
-			const FRayRopeNode& Node = Segment.Nodes[NodeIndex];
-			UE_LOG(
-				LogRayRope,
-				Log,
-				TEXT("[Debug] %s Segment[%d].Node[%d] Type=%s Location=%s AttachedActor=%s UseOffset=%s Offset=%s"),
-				SafeContext,
-				SegmentIndex,
-				NodeIndex,
-				GetRopeNodeTypeName(Node.NodeType),
-				*Node.WorldLocation.ToCompactString(),
-				*GetNameSafe(Node.AttachedActor),
-				Node.bUseAttachedActorOffset ? TEXT("true") : TEXT("false"),
-				*Node.AttachedActorOffset.ToCompactString());
-		}
-	}
+		MaxAllowedRopeLength,
+		bIsRopeSolving);
 }

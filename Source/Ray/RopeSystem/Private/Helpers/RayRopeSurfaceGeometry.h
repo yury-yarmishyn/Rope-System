@@ -1,10 +1,10 @@
 #pragma once
 
-#include "RayRopeInternalTypes.h"
+#include "RayRopeTrace.h"
 
 struct FHitResult;
 
-struct FRayRopeWrapGeometry
+struct FRayRopeSurfaceGeometry
 {
 	static bool AreDirectionsNearlyCollinear(
 		const FVector& FirstDirection,
@@ -15,11 +15,6 @@ struct FRayRopeWrapGeometry
 		const FRayRopeSpan& ValidSpan,
 		const FHitResult& FrontSurfaceHit,
 		const FHitResult* BackSurfaceHit);
-
-	static FVector CalculateRedirectOffset(
-		const FRayRopeWrapSettings& WrapSettings,
-		const FHitResult& FrontSurfaceHit,
-		const FHitResult* BackSurfaceHit = nullptr);
 
 private:
 	static FVector CalculateProjectedPointOnHitPlane(
@@ -32,12 +27,9 @@ private:
 		FVector& OutLinePoint,
 		FVector& OutLineDirection);
 
-	static void FindClosestPointsOnSegmentToLine(
+	static FVector FindClosestPointOnLineToClampedSegment(
 		const FVector& SegmentStart,
 		const FVector& SegmentEnd,
 		const FVector& LinePoint,
-		const FVector& LineDirection,
-		FVector& OutPointOnSegment,
-		FVector& OutPointOnLine,
-		float& OutDistanceSquared);
+		const FVector& LineDirection);
 };

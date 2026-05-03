@@ -1,6 +1,6 @@
-#include "RayRopeWrapGeometry.h"
+#include "RayRopeSurfaceGeometry.h"
 
-bool FRayRopeWrapGeometry::AreDirectionsNearlyCollinear(
+bool FRayRopeSurfaceGeometry::AreDirectionsNearlyCollinear(
 	const FVector& FirstDirection,
 	const FVector& SecondDirection,
 	float Epsilon)
@@ -10,7 +10,7 @@ bool FRayRopeWrapGeometry::AreDirectionsNearlyCollinear(
 		SecondDirection.GetSafeNormal()).SizeSquared() <= FMath::Square(Epsilon);
 }
 
-FVector FRayRopeWrapGeometry::CalculateRedirectLocation(
+FVector FRayRopeSurfaceGeometry::CalculateRedirectLocation(
 	const FRayRopeSpan& ValidSpan,
 	const FHitResult& FrontSurfaceHit,
 	const FHitResult* BackSurfaceHit)
@@ -34,17 +34,11 @@ FVector FRayRopeWrapGeometry::CalculateRedirectLocation(
 		return FallbackLocation;
 	}
 
-	FVector ClosestPointOnValidSpan = FVector::ZeroVector;
-	FVector ClosestPointOnIntersectionLine = FVector::ZeroVector;
-	float DistanceToIntersectionLineSquared = 0.f;
-	FindClosestPointsOnSegmentToLine(
+	const FVector ClosestPointOnIntersectionLine = FindClosestPointOnLineToClampedSegment(
 		ValidSpan.GetStartLocation(),
 		ValidSpan.GetEndLocation(),
 		PlaneIntersectionPoint,
-		PlaneIntersectionDirection,
-		ClosestPointOnValidSpan,
-		ClosestPointOnIntersectionLine,
-		DistanceToIntersectionLineSquared);
+		PlaneIntersectionDirection);
 
 	if (ClosestPointOnIntersectionLine.ContainsNaN())
 	{
@@ -54,26 +48,7 @@ FVector FRayRopeWrapGeometry::CalculateRedirectLocation(
 	return ClosestPointOnIntersectionLine;
 }
 
-FVector FRayRopeWrapGeometry::CalculateRedirectOffset(
-	const FRayRopeWrapSettings& WrapSettings,
-	const FHitResult& FrontSurfaceHit,
-	const FHitResult* BackSurfaceHit)
-{
-	if (BackSurfaceHit == nullptr)
-	{
-		return FrontSurfaceHit.ImpactNormal.GetSafeNormal() * WrapSettings.WrapSurfaceOffset;
-	}
-
-	FVector OffsetDirection = FrontSurfaceHit.ImpactNormal + BackSurfaceHit->ImpactNormal;
-	if (OffsetDirection.IsNearlyZero())
-	{
-		OffsetDirection = FrontSurfaceHit.ImpactNormal;
-	}
-
-	return OffsetDirection.GetSafeNormal() * WrapSettings.WrapSurfaceOffset;
-}
-
-FVector FRayRopeWrapGeometry::CalculateProjectedPointOnHitPlane(
+FVector FRayRopeSurfaceGeometry::CalculateProjectedPointOnHitPlane(
 	const FRayRopeSpan& ValidSpan,
 	const FHitResult& SurfaceHit)
 {
@@ -100,7 +75,7 @@ FVector FRayRopeWrapGeometry::CalculateProjectedPointOnHitPlane(
 	return LineStart + LineDirection * T;
 }
 
-bool FRayRopeWrapGeometry::TryGetPlaneIntersectionLine(
+bool FRayRopeSurfaceGeometry::TryGetPlaneIntersectionLine(
 	const FHitResult& FrontSurfaceHit,
 	const FHitResult& BackSurfaceHit,
 	FVector& OutLinePoint,
@@ -134,14 +109,11 @@ bool FRayRopeWrapGeometry::TryGetPlaneIntersectionLine(
 	return true;
 }
 
-void FRayRopeWrapGeometry::FindClosestPointsOnSegmentToLine(
+FVector FRayRopeSurfaceGeometry::FindClosestPointOnLineToClampedSegment(
 	const FVector& SegmentStart,
 	const FVector& SegmentEnd,
 	const FVector& LinePoint,
-	const FVector& LineDirection,
-	FVector& OutPointOnSegment,
-	FVector& OutPointOnLine,
-	float& OutDistanceSquared)
+	const FVector& LineDirection)
 {
 	const FVector SegmentDirection = SegmentEnd - SegmentStart;
 	const float SegmentLengthSquared = SegmentDirection.SizeSquared();
@@ -150,15 +122,11 @@ void FRayRopeWrapGeometry::FindClosestPointsOnSegmentToLine(
 	if (SegmentLengthSquared <= KINDA_SMALL_NUMBER ||
 		LineLengthSquared <= KINDA_SMALL_NUMBER)
 	{
-		OutPointOnSegment = SegmentStart;
-
 		const float T = LineLengthSquared <= KINDA_SMALL_NUMBER
 			? 0.f
 			: FVector::DotProduct(SegmentStart - LinePoint, LineDirection) / LineLengthSquared;
 
-		OutPointOnLine = LinePoint + LineDirection * T;
-		OutDistanceSquared = FVector::DistSquared(OutPointOnSegment, OutPointOnLine);
-		return;
+		return LinePoint + LineDirection * T;
 	}
 
 	const FVector Offset = SegmentStart - LinePoint;
@@ -176,7 +144,5 @@ void FRayRopeWrapGeometry::FindClosestPointsOnSegmentToLine(
 	SegmentT = FMath::Clamp(SegmentT, 0.f, 1.f);
 
 	const float LineT = (E + B * SegmentT) / C;
-	OutPointOnLine = LinePoint + LineDirection * LineT;
-	OutPointOnSegment = SegmentStart + SegmentDirection * SegmentT;
-	OutDistanceSquared = FVector::DistSquared(OutPointOnSegment, OutPointOnLine);
+	return LinePoint + LineDirection * LineT;
 }

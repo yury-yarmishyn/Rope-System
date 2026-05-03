@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "Engine/EngineTypes.h"
 #include "RayRopeTypes.h"
 #include "RayRopeComponent.generated.h"
 
@@ -75,8 +74,8 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Rope|Relax Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float RelaxSolverTolerance = 1.f;
 
-	UPROPERTY(EditAnywhere, Category = "Rope|Relax Solver", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
-	float RelaxCollinearityTolerance = 0.01f;
+	UPROPERTY(EditAnywhere, Category = "Rope|Wrap Solver", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
+	float GeometryCollinearityTolerance = 0.01f;
 
 	UPROPERTY(EditAnywhere, Category = "Rope|Relax Solver", meta = (ClampMin = "1", UIMin = "1"))
 	int32 MaxRelaxCollapseIterations = 8;
@@ -132,6 +131,9 @@ protected:
 
 	UPROPERTY(Transient)
 	float NextDebugLogTimeSeconds = 0.f;
+
+	UPROPERTY(Transient)
+	TArray<FRayRopeNode> ReferenceNodesScratch;
 
 	// Component-owned orchestration stays here; the algorithmic passes live in plain C++ helpers.
 	void SyncRopeNodes();

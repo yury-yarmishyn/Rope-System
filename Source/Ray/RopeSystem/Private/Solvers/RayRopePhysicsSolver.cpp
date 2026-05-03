@@ -1,160 +1,102 @@
 #include "RayRopePhysicsSolver.h"
 
-#include "Components/PrimitiveComponent.h"
-#include "GameFramework/Actor.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
-bool FRayRopePhysicsSolver::Solve(
-	AActor* OwnerActor,
-	const TArray<FRayRopeSegment>& Segments,
-	const FRayRopePhysicsSettings& PhysicsSettings)
+namespace
 {
-	if (PhysicsSettings.MaxAllowedRopeLength <= 0.f ||
-		PhysicsSettings.CurrentRopeLength <= PhysicsSettings.MaxAllowedRopeLength)
-	{
-		return false;
-	}
-
+struct FOwnerTerminalNodes
+{
 	const FRayRopeNode* OwnerNode = nullptr;
 	const FRayRopeNode* AdjacentNode = nullptr;
-	if (!TryGetOwnerTerminalNodes(
-			OwnerActor,
-			Segments,
-			OwnerNode,
-			AdjacentNode) ||
-		OwnerNode == nullptr ||
-		AdjacentNode == nullptr)
+
+	bool IsValid() const
+	{
+		return OwnerNode != nullptr && AdjacentNode != nullptr;
+	}
+};
+
+bool IsOwnerAnchorNode(AActor* OwnerActor, const FRayRopeNode& Node)
+{
+	return Node.NodeType == ERayRopeNodeType::Anchor &&
+		Node.AttachedActor == OwnerActor;
+}
+
+bool TryGetOwnerEndpointInSegment(
+	AActor* OwnerActor,
+	const FRayRopeSegment& Segment,
+	bool bCheckStart,
+	FOwnerTerminalNodes& OutTerminalNodes)
+{
+	OutTerminalNodes = FOwnerTerminalNodes();
+
+	if (Segment.Nodes.Num() < 2)
 	{
 		return false;
 	}
 
-	return ClampOwnerAnchorToMaxRopeLength(
-		OwnerActor,
-		PhysicsSettings,
-		*OwnerNode,
-		*AdjacentNode);
+	const int32 OwnerNodeIndex = bCheckStart ? 0 : Segment.Nodes.Num() - 1;
+	const int32 AdjacentNodeIndex = bCheckStart ? 1 : OwnerNodeIndex - 1;
+	const FRayRopeNode& OwnerNode = Segment.Nodes[OwnerNodeIndex];
+	if (!IsOwnerAnchorNode(OwnerActor, OwnerNode))
+	{
+		return false;
+	}
+
+	OutTerminalNodes.OwnerNode = &OwnerNode;
+	OutTerminalNodes.AdjacentNode = &Segment.Nodes[AdjacentNodeIndex];
+	return true;
 }
 
-bool FRayRopePhysicsSolver::TryGetOwnerTerminalNodes(
+bool TryGetOwnerTerminalNodes(
 	AActor* OwnerActor,
 	const TArray<FRayRopeSegment>& Segments,
-	const FRayRopeNode*& OutOwnerNode,
-	const FRayRopeNode*& OutAdjacentNode)
+	FOwnerTerminalNodes& OutTerminalNodes)
 {
-	OutOwnerNode = nullptr;
-	OutAdjacentNode = nullptr;
+	OutTerminalNodes = FOwnerTerminalNodes();
 
 	if (!IsValid(OwnerActor) || Segments.Num() == 0)
 	{
 		return false;
 	}
 
+	// The length constraint moves only the component owner, so the owner anchor must stay terminal.
 	const FRayRopeSegment& FirstSegment = Segments[0];
-	if (FirstSegment.Nodes.Num() >= 2)
+	if (TryGetOwnerEndpointInSegment(OwnerActor, FirstSegment, true, OutTerminalNodes))
 	{
-		const FRayRopeNode& FirstNode = FirstSegment.Nodes[0];
-		if (FirstNode.NodeType == ERayRopeNodeType::Anchor &&
-			FirstNode.AttachedActor == OwnerActor)
-		{
-			OutOwnerNode = &FirstNode;
-			OutAdjacentNode = &FirstSegment.Nodes[1];
-			return true;
-		}
+		return true;
 	}
 
 	const FRayRopeSegment& LastSegment = Segments.Last();
-	if (LastSegment.Nodes.Num() >= 2)
-	{
-		const int32 LastNodeIndex = LastSegment.Nodes.Num() - 1;
-		const FRayRopeNode& LastNode = LastSegment.Nodes[LastNodeIndex];
-		if (LastNode.NodeType == ERayRopeNodeType::Anchor &&
-			LastNode.AttachedActor == OwnerActor)
-		{
-			OutOwnerNode = &LastNode;
-			OutAdjacentNode = &LastSegment.Nodes[LastNodeIndex - 1];
-			return true;
-		}
-	}
-
-	return false;
+	return TryGetOwnerEndpointInSegment(OwnerActor, LastSegment, false, OutTerminalNodes);
 }
 
-bool FRayRopePhysicsSolver::ClampOwnerAnchorToMaxRopeLength(
-	AActor* OwnerActor,
-	const FRayRopePhysicsSettings& PhysicsSettings,
-	const FRayRopeNode& OwnerNode,
-	const FRayRopeNode& AdjacentNode)
+bool RemoveCharacterOutwardVelocity(AActor* OwnerActor, const FVector& OutwardDirection)
 {
-	if (!IsValid(OwnerActor))
+	ACharacter* OwnerCharacter = Cast<ACharacter>(OwnerActor);
+	if (!IsValid(OwnerCharacter))
 	{
 		return false;
 	}
 
-	const FVector OwnerAnchorLocation = OwnerNode.WorldLocation;
-	const FVector AdjacentLocation = AdjacentNode.WorldLocation;
-	const FVector TowardAdjacent = AdjacentLocation - OwnerAnchorLocation;
-	const float TerminalSpanLength = TowardAdjacent.Size();
-	if (TerminalSpanLength <= KINDA_SMALL_NUMBER)
+	UCharacterMovementComponent* CharacterMovement = OwnerCharacter->GetCharacterMovement();
+	if (CharacterMovement == nullptr)
 	{
 		return false;
 	}
 
-	const float ExcessLength =
-		PhysicsSettings.CurrentRopeLength - PhysicsSettings.MaxAllowedRopeLength;
-	if (ExcessLength <= KINDA_SMALL_NUMBER)
+	const float OutwardSpeed =
+		FVector::DotProduct(CharacterMovement->Velocity, OutwardDirection);
+	if (OutwardSpeed > 0.f)
 	{
-		return false;
+		CharacterMovement->Velocity -= OutwardDirection * OutwardSpeed;
 	}
 
-	const FVector OutwardDirection = -TowardAdjacent / TerminalSpanLength;
-	RemoveOwnerOutwardVelocity(OwnerActor, OutwardDirection);
-
-	const float ClampDistance = FMath::Min(ExcessLength, TerminalSpanLength);
-	const FVector TargetAnchorLocation =
-		OwnerAnchorLocation + TowardAdjacent.GetSafeNormal() * ClampDistance;
-	const FVector ActorDelta = TargetAnchorLocation - OwnerAnchorLocation;
-	if (ActorDelta.IsNearlyZero())
-	{
-		return false;
-	}
-
-	const FVector StartActorLocation = OwnerActor->GetActorLocation();
-	FHitResult SweepHit;
-	OwnerActor->SetActorLocation(
-		StartActorLocation + ActorDelta,
-		true,
-		&SweepHit,
-		ETeleportType::None);
-
-	return !OwnerActor->GetActorLocation().Equals(
-		StartActorLocation,
-		KINDA_SMALL_NUMBER);
+	return true;
 }
 
-void FRayRopePhysicsSolver::RemoveOwnerOutwardVelocity(
-	AActor* OwnerActor,
-	const FVector& OutwardDirection)
+void RemovePrimitiveOutwardVelocity(AActor* OwnerActor, const FVector& OutwardDirection)
 {
-	if (!IsValid(OwnerActor) || OutwardDirection.IsNearlyZero())
-	{
-		return;
-	}
-
-	if (ACharacter* OwnerCharacter = Cast<ACharacter>(OwnerActor))
-	{
-		if (UCharacterMovementComponent* CharacterMovement =
-				OwnerCharacter->GetCharacterMovement())
-		{
-			const float OutwardSpeed =
-				FVector::DotProduct(CharacterMovement->Velocity, OutwardDirection);
-			if (OutwardSpeed > 0.f)
-			{
-				CharacterMovement->Velocity -= OutwardDirection * OutwardSpeed;
-			}
-		}
-	}
-
 	UPrimitiveComponent* RootPrimitive =
 		Cast<UPrimitiveComponent>(OwnerActor->GetRootComponent());
 	if (!IsValid(RootPrimitive))
@@ -185,4 +127,98 @@ void FRayRopePhysicsSolver::RemoveOwnerOutwardVelocity(
 		RootPrimitive->ComponentVelocity =
 			LinearVelocity - OutwardDirection * OutwardSpeed;
 	}
+}
+
+void RemoveOwnerOutwardVelocity(AActor* OwnerActor, const FVector& OutwardDirection)
+{
+	if (!IsValid(OwnerActor) || OutwardDirection.IsNearlyZero())
+	{
+		return;
+	}
+
+	if (RemoveCharacterOutwardVelocity(OwnerActor, OutwardDirection))
+	{
+		return;
+	}
+
+	RemovePrimitiveOutwardVelocity(OwnerActor, OutwardDirection);
+}
+
+bool ClampOwnerAnchorToMaxRopeLength(
+	AActor* OwnerActor,
+	const FRayRopePhysicsSettings& PhysicsSettings,
+	const FRayRopeNode& OwnerNode,
+	const FRayRopeNode& AdjacentNode)
+{
+	if (!IsValid(OwnerActor))
+	{
+		return false;
+	}
+
+	const FVector OwnerAnchorLocation = OwnerNode.WorldLocation;
+	const FVector AdjacentLocation = AdjacentNode.WorldLocation;
+	const FVector TowardAdjacent = AdjacentLocation - OwnerAnchorLocation;
+	const float TerminalSpanLength = TowardAdjacent.Size();
+	if (TerminalSpanLength <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	const float ExcessLength =
+		PhysicsSettings.CurrentRopeLength - PhysicsSettings.MaxAllowedRopeLength;
+	if (ExcessLength <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	const FVector TowardAdjacentDirection = TowardAdjacent / TerminalSpanLength;
+	const FVector OutwardDirection = -TowardAdjacentDirection;
+	RemoveOwnerOutwardVelocity(OwnerActor, OutwardDirection);
+
+	const float ClampDistance = FMath::Min(ExcessLength, TerminalSpanLength);
+	const FVector TargetAnchorLocation =
+		OwnerAnchorLocation + TowardAdjacentDirection * ClampDistance;
+	const FVector ActorDelta = TargetAnchorLocation - OwnerAnchorLocation;
+	if (ActorDelta.IsNearlyZero())
+	{
+		return false;
+	}
+
+	const FVector StartActorLocation = OwnerActor->GetActorLocation();
+	FHitResult SweepHit;
+	OwnerActor->SetActorLocation(
+		StartActorLocation + ActorDelta,
+		true,
+		&SweepHit,
+		ETeleportType::None);
+
+	return !OwnerActor->GetActorLocation().Equals(
+		StartActorLocation,
+		KINDA_SMALL_NUMBER);
+}
+}
+
+bool FRayRopePhysicsSolver::Solve(
+	AActor* OwnerActor,
+	const TArray<FRayRopeSegment>& Segments,
+	const FRayRopePhysicsSettings& PhysicsSettings)
+{
+	if (PhysicsSettings.MaxAllowedRopeLength <= 0.f ||
+		PhysicsSettings.CurrentRopeLength <= PhysicsSettings.MaxAllowedRopeLength)
+	{
+		return false;
+	}
+
+	FOwnerTerminalNodes TerminalNodes;
+	if (!TryGetOwnerTerminalNodes(OwnerActor, Segments, TerminalNodes) ||
+		!TerminalNodes.IsValid())
+	{
+		return false;
+	}
+
+	return ClampOwnerAnchorToMaxRopeLength(
+		OwnerActor,
+		PhysicsSettings,
+		*TerminalNodes.OwnerNode,
+		*TerminalNodes.AdjacentNode);
 }

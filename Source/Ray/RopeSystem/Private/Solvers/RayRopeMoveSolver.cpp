@@ -1,65 +1,189 @@
 #include "RayRopeMoveSolver.h"
 
-#include "CollisionQueryParams.h"
-#include "Engine/World.h"
-#include "Helpers/RayRopeTrace.h"
-#include "RayRopeNodeResolver.h"
+#include "Helpers/RayRopeNodeSynchronizer.h"
+#include "Helpers/RayRopeSurfaceGeometry.h"
+#include "Helpers/RayRopeTransitionValidator.h"
 
 namespace
 {
-struct FMoveRailSearchContext
+struct FMoveSurfaceHits
 {
-	const FRayRopeTraceContext& TraceContext;
-	const FRayRopeMoveSettings& MoveSettings;
-	const FRayRopeNode& PrevNode;
-	const FRayRopeNode& CurrentNode;
-	const FRayRopeNode& NextNode;
-	const FVector RailDirection;
+	FHitResult ForwardSurfaceHit;
+	FHitResult ReverseSurfaceHit;
 };
 
-FRayRopeNode CreateTransientMoveNode(const FVector& WorldLocation)
+struct FMoveRail
 {
-	FRayRopeNode Node;
-	Node.NodeType = ERayRopeNodeType::Redirect;
-	Node.WorldLocation = WorldLocation;
-	return Node;
-}
+	FVector Origin = FVector::ZeroVector;
+	FVector Direction = FVector::ZeroVector;
+};
+
+struct FMoveRailSearchContext
+{
+	const FRayRopeMoveSettings& MoveSettings;
+	const FRayRopeNode& PrevNode;
+	const FRayRopeNode& NextNode;
+	const FMoveRail Rail;
+	float CurrentRailParameter = 0.f;
+};
+
+struct FMoveResult
+{
+	FVector EffectivePoint = FVector::ZeroVector;
+	FRayRopeBuiltNodeBuffer BeforeCurrentNodes;
+	FRayRopeBuiltNodeBuffer AfterCurrentNodes;
+};
+
+struct FMoveSurfaceSearchBounds
+{
+	FVector ClearStartPoint;
+	FVector BlockedStartPoint;
+	FVector ClearEndPoint;
+	FVector BlockedEndPoint;
+
+	bool IsResolved(float SearchEpsilonSquared) const
+	{
+		return FVector::DistSquared(ClearStartPoint, BlockedStartPoint) <= SearchEpsilonSquared &&
+			FVector::DistSquared(ClearEndPoint, BlockedEndPoint) <= SearchEpsilonSquared;
+	}
+
+	FVector GetTraceStart() const
+	{
+		return (ClearStartPoint + BlockedStartPoint) * 0.5f;
+	}
+
+	FVector GetTraceEnd() const
+	{
+		return (ClearEndPoint + BlockedEndPoint) * 0.5f;
+	}
+
+	void MarkBlocked(const FVector& TraceStart, const FVector& TraceEnd)
+	{
+		BlockedStartPoint = TraceStart;
+		BlockedEndPoint = TraceEnd;
+	}
+
+	void MarkClear(const FVector& TraceStart, const FVector& TraceEnd)
+	{
+		ClearStartPoint = TraceStart;
+		ClearEndPoint = TraceEnd;
+	}
+};
+
+bool TryFindEffectiveMove(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	FMoveResult& OutResult);
+
+bool TryBuildMoveRail(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	FMoveRail& OutRail);
+
+bool TryFindRailDirectionSurfaceHits(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	FMoveSurfaceHits& OutHits);
+
+bool TryTraceMoveHit(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& StartNode,
+	const FRayRopeNode& EndNode,
+	FHitResult& OutHit);
+
+bool TryBuildRailFromSurfaceHits(
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& CurrentNode,
+	const FHitResult& FirstSurfaceHit,
+	const FHitResult& SecondSurfaceHit,
+	FMoveRail& OutRail);
+
+bool TryFindEffectivePointOnRail(
+	const FRayRopeMoveSettings& MoveSettings,
+	const FMoveRail& Rail,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	FVector& OutEffectivePoint);
+
+bool TryFindValidEffectivePoint(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& TargetPoint,
+	FVector& OutEffectivePoint);
+
+bool TryBuildMoveWithNewNodes(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& TargetPoint,
+	FMoveResult& OutResult);
+
+bool IsReachableMoveTarget(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& CandidatePoint);
+
+bool IsValidMovePoint(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& CandidatePoint);
+
+bool TryQueueMoveInsertions(
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& MovedNode,
+	const FRayRopeNode& NextNode,
+	int32 NodeIndex,
+	FMoveResult& MoveResult,
+	FRayRopePendingNodeInsertionBuffer& PendingInsertions);
+
+FRayRopeTransitionValidationSettings BuildMoveTransitionValidationSettings(
+	const FRayRopeMoveSettings& MoveSettings);
+
+float CalculateMoveDistanceSum(
+	const FRayRopeNode& PrevNode,
+	const FVector& MiddleLocation,
+	const FRayRopeNode& NextNode);
+
+bool IsMoveImprovementSignificant(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& CandidatePoint);
+
+FRayRopeNode CreateMovePointNode(const FVector& WorldLocation);
+
+FRayRopeNode CreateMoveCandidateNode(
+	const FRayRopeNode& SourceNode,
+	const FVector& WorldLocation);
 
 FVector GetRailPoint(const FMoveRailSearchContext& SearchContext, float RailParameter)
 {
-	return SearchContext.CurrentNode.WorldLocation + SearchContext.RailDirection * RailParameter;
-}
-
-bool HasBlockingHitBetween(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeNode& StartNode,
-	const FRayRopeNode& EndNode)
-{
-	if (!IsValid(TraceContext.World) ||
-		StartNode.WorldLocation.ContainsNaN() ||
-		EndNode.WorldLocation.ContainsNaN() ||
-		StartNode.WorldLocation.Equals(EndNode.WorldLocation, KINDA_SMALL_NUMBER))
-	{
-		return false;
-	}
-
-	FHitResult Hit;
-	const FRayRopeSpan TraceSpan{&StartNode, &EndNode};
-	return FRayRopeTrace::TryTraceSpan(TraceContext, TraceSpan, Hit);
-}
-
-bool IsRailPointBlocked(const FMoveRailSearchContext& SearchContext, float RailParameter)
-{
-	const FVector CandidateLocation = GetRailPoint(SearchContext, RailParameter);
-	if (FRayRopeTrace::IsPointInsideGeometry(SearchContext.TraceContext, CandidateLocation))
-	{
-		return true;
-	}
-
-	const FRayRopeNode CandidateNode = CreateTransientMoveNode(CandidateLocation);
-
-	return HasBlockingHitBetween(SearchContext.TraceContext, SearchContext.PrevNode, CandidateNode) ||
-		HasBlockingHitBetween(SearchContext.TraceContext, CandidateNode, SearchContext.NextNode);
+	return SearchContext.Rail.Origin + SearchContext.Rail.Direction * RailParameter;
 }
 
 float CalculateRailDistanceSum(const FMoveRailSearchContext& SearchContext, float RailParameter)
@@ -69,87 +193,20 @@ float CalculateRailDistanceSum(const FMoveRailSearchContext& SearchContext, floa
 		FVector::Dist(CandidateLocation, SearchContext.NextNode.WorldLocation);
 }
 
-float RefineReachableRailLimit(
-	const FMoveRailSearchContext& SearchContext,
-	float LastValidRailParameter,
-	float FirstBlockedRailParameter)
-{
-	const int32 MaxIterations = FMath::Max(0, SearchContext.MoveSettings.MaxEffectivePointSearchIterations);
-	for (int32 Iteration = 0; Iteration < MaxIterations; ++Iteration)
-	{
-		if (FMath::Abs(FirstBlockedRailParameter - LastValidRailParameter) <=
-			SearchContext.MoveSettings.MoveSolverTolerance)
-		{
-			break;
-		}
-
-		const float MidRailParameter = (LastValidRailParameter + FirstBlockedRailParameter) * 0.5f;
-		if (IsRailPointBlocked(SearchContext, MidRailParameter))
-		{
-			FirstBlockedRailParameter = MidRailParameter;
-		}
-		else
-		{
-			LastValidRailParameter = MidRailParameter;
-		}
-	}
-
-	return LastValidRailParameter;
-}
-
-bool TryClampRailParameterToReachablePath(
-	const FMoveRailSearchContext& SearchContext,
-	float TargetRailParameter,
-	float& OutRailParameter)
-{
-	OutRailParameter = 0.f;
-
-	if (IsRailPointBlocked(SearchContext, 0.f))
-	{
-		return false;
-	}
-
-	if (FMath::IsNearlyZero(TargetRailParameter, SearchContext.MoveSettings.MoveSolverTolerance))
-	{
-		return true;
-	}
-
-	float LastValidRailParameter = 0.f;
-	const int32 StepCount = FMath::Max(1, SearchContext.MoveSettings.MaxEffectivePointSearchIterations);
-	for (int32 StepIndex = 1; StepIndex <= StepCount; ++StepIndex)
-	{
-		const float SampleRailParameter =
-			TargetRailParameter * static_cast<float>(StepIndex) / static_cast<float>(StepCount);
-
-		if (IsRailPointBlocked(SearchContext, SampleRailParameter))
-		{
-			OutRailParameter = RefineReachableRailLimit(
-				SearchContext,
-				LastValidRailParameter,
-				SampleRailParameter);
-			return true;
-		}
-
-		LastValidRailParameter = SampleRailParameter;
-	}
-
-	OutRailParameter = TargetRailParameter;
-	return true;
-}
-
 float FindBestRailParameter(
 	const FMoveRailSearchContext& SearchContext,
 	float LeftRailParameter,
 	float RightRailParameter)
 {
-	float BestRailParameter = 0.f;
+	float BestRailParameter = SearchContext.CurrentRailParameter;
 	float BestDistanceSum = CalculateRailDistanceSum(SearchContext, BestRailParameter);
 	const float SearchEpsilon = FMath::Max(
 		SearchContext.MoveSettings.EffectivePointSearchTolerance,
 		SearchContext.MoveSettings.MoveSolverTolerance);
 
-	const int32 MaxIterations = FMath::Max(0, SearchContext.MoveSettings.MaxEffectivePointSearchIterations);
-	for (int32 Iteration = 0; Iteration < MaxIterations; ++Iteration)
+	const int32 MaxRailPointSearchIterations =
+		FMath::Max(0, SearchContext.MoveSettings.MaxEffectivePointSearchIterations);
+	for (int32 Iteration = 0; Iteration < MaxRailPointSearchIterations; ++Iteration)
 	{
 		if (FMath::Abs(RightRailParameter - LeftRailParameter) <= SearchEpsilon)
 		{
@@ -210,6 +267,9 @@ void FRayRopeMoveSolver::MoveSegment(
 		const int32 LastNodeIndex = bMoveForward ? Segment.Nodes.Num() - 1 : 0;
 		const int32 NodeIndexStep = bMoveForward ? 1 : -1;
 
+		FRayRopePendingNodeInsertionBuffer PendingInsertions;
+		PendingInsertions.Reserve(Segment.Nodes.Num() * 2);
+
 		for (int32 NodeIndex = FirstNodeIndex; NodeIndex != LastNodeIndex; NodeIndex += NodeIndexStep)
 		{
 			FRayRopeNode& CurrentNode = Segment.Nodes[NodeIndex];
@@ -221,118 +281,123 @@ void FRayRopeMoveSolver::MoveSegment(
 			const FRayRopeNode& PrevNode = Segment.Nodes[NodeIndex - 1];
 			const FRayRopeNode& NextNode = Segment.Nodes[NodeIndex + 1];
 
-			FVector EffectivePoint = FVector::ZeroVector;
-			if (!TryFindEffectiveMovePoint(
+			FMoveResult MoveResult;
+			if (!TryFindEffectiveMove(
 				TraceContext,
 				MoveSettings,
 				PrevNode,
 				CurrentNode,
 				NextNode,
-				EffectivePoint))
+				MoveResult))
 			{
 				continue;
 			}
 
-			CurrentNode.WorldLocation = EffectivePoint;
-			FRayRopeNodeResolver::CacheAttachedActorOffset(CurrentNode);
+			FRayRopeNode MovedNode = CreateMoveCandidateNode(CurrentNode, MoveResult.EffectivePoint);
+			FRayRopeNodeSynchronizer::CacheAttachedActorOffset(MovedNode);
+			if (!TryQueueMoveInsertions(
+				MoveSettings,
+				PrevNode,
+				MovedNode,
+				NextNode,
+				NodeIndex,
+				MoveResult,
+				PendingInsertions))
+			{
+				continue;
+			}
+
+			CurrentNode = MoveTemp(MovedNode);
 		}
+
+		FRayRopeNodeBuilder::ApplyPendingInsertions(Segment, PendingInsertions);
 	}
 }
 
-bool FRayRopeMoveSolver::TryFindEffectiveMovePoint(
-	const FRayRopeTraceSettings& TraceSettings,
-	const FRayRopeMoveSettings& MoveSettings,
-	const FVector& PrevLocation,
-	const FVector& CurrentLocation,
-	const FVector& NextLocation,
-	FVector& OutEffectivePoint)
+namespace
 {
-	const FRayRopeTraceContext TraceContext = FRayRopeTrace::MakeTraceContext(
-		TraceSettings,
-		FCollisionQueryParams(SCENE_QUERY_STAT(RayRopeMoveTrace)));
-
-	const FRayRopeNode PrevNode = CreateMovePointNode(PrevLocation);
-	const FRayRopeNode CurrentNode = CreateMovePointNode(CurrentLocation);
-	const FRayRopeNode NextNode = CreateMovePointNode(NextLocation);
-
-	return TryFindEffectiveMovePoint(
-		TraceContext,
-		MoveSettings,
-		PrevNode,
-		CurrentNode,
-		NextNode,
-		OutEffectivePoint);
-}
-
-bool FRayRopeMoveSolver::TryFindEffectiveMovePoint(
+bool TryFindEffectiveMove(
 	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeMoveSettings& MoveSettings,
 	const FRayRopeNode& PrevNode,
 	const FRayRopeNode& CurrentNode,
 	const FRayRopeNode& NextNode,
-	FVector& OutEffectivePoint)
+	FMoveResult& OutResult)
 {
-	FVector RailDirection = FVector::ZeroVector;
-	if (!TryBuildMoveRailDirection(
+	OutResult = FMoveResult();
+
+	FMoveRail Rail;
+	if (!TryBuildMoveRail(
 		TraceContext,
 		MoveSettings,
 		PrevNode,
 		CurrentNode,
 		NextNode,
-		RailDirection))
+		Rail))
 	{
 		return false;
 	}
 
-	FVector EffectivePoint = FVector::ZeroVector;
+	FVector TargetPoint = FVector::ZeroVector;
 	if (!TryFindEffectivePointOnRail(
-		TraceContext,
 		MoveSettings,
-		RailDirection,
+		Rail,
 		PrevNode,
 		CurrentNode,
 		NextNode,
-		EffectivePoint))
+		TargetPoint))
 	{
 		return false;
 	}
 
-	if (EffectivePoint.ContainsNaN())
+	if (!TryFindValidEffectivePoint(
+		TraceContext,
+		MoveSettings,
+		PrevNode,
+		CurrentNode,
+		NextNode,
+		TargetPoint,
+		OutResult.EffectivePoint))
 	{
-		return false;
+		return TryBuildMoveWithNewNodes(
+			TraceContext,
+			MoveSettings,
+			PrevNode,
+			CurrentNode,
+			NextNode,
+			TargetPoint,
+			OutResult);
 	}
 
-	OutEffectivePoint = EffectivePoint;
 	return true;
 }
 
-bool FRayRopeMoveSolver::TryBuildMoveRailDirection(
+bool TryBuildMoveRail(
 	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeMoveSettings& MoveSettings,
 	const FRayRopeNode& PrevNode,
 	const FRayRopeNode& CurrentNode,
 	const FRayRopeNode& NextNode,
-	FVector& OutRailDirection)
+	FMoveRail& OutRail)
 {
-	FHitResult PrevCurrentToCurrentNextHit;
-	FHitResult CurrentNextToPrevCurrentHit;
+	FMoveSurfaceHits SurfaceHits;
 	if (!TryFindRailDirectionSurfaceHits(
 		TraceContext,
 		MoveSettings,
 		PrevNode,
 		CurrentNode,
 		NextNode,
-		PrevCurrentToCurrentNextHit,
-		CurrentNextToPrevCurrentHit))
+		SurfaceHits))
 	{
 		return false;
 	}
 
-	if (!TryFindPlaneIntersectionRailDirection(
+	if (!TryBuildRailFromSurfaceHits(
 		MoveSettings,
-		PrevCurrentToCurrentNextHit,
-		CurrentNextToPrevCurrentHit,
-		OutRailDirection))
+		CurrentNode,
+		SurfaceHits.ForwardSurfaceHit,
+		SurfaceHits.ReverseSurfaceHit,
+		OutRail))
 	{
 		return false;
 	}
@@ -340,17 +405,15 @@ bool FRayRopeMoveSolver::TryBuildMoveRailDirection(
 	return true;
 }
 
-bool FRayRopeMoveSolver::TryFindRailDirectionSurfaceHits(
+bool TryFindRailDirectionSurfaceHits(
 	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeMoveSettings& MoveSettings,
 	const FRayRopeNode& PrevNode,
 	const FRayRopeNode& CurrentNode,
 	const FRayRopeNode& NextNode,
-	FHitResult& OutPrevCurrentToCurrentNextHit,
-	FHitResult& OutCurrentNextToPrevCurrentHit)
+	FMoveSurfaceHits& OutHits)
 {
-	OutPrevCurrentToCurrentNextHit = FHitResult();
-	OutCurrentNextToPrevCurrentHit = FHitResult();
+	OutHits = FMoveSurfaceHits();
 
 	if (!IsValid(TraceContext.World) ||
 		PrevNode.WorldLocation.ContainsNaN() ||
@@ -368,75 +431,80 @@ bool FRayRopeMoveSolver::TryFindRailDirectionSurfaceHits(
 		return false;
 	}
 
-	FVector PrevCurrentNoHitPoint = CurrentNode.WorldLocation;
-	FVector PrevCurrentHitPoint = PrevNode.WorldLocation;
-	FVector CurrentNextNoHitPoint = CurrentNode.WorldLocation;
-	FVector CurrentNextHitPoint = NextNode.WorldLocation;
+	FMoveSurfaceSearchBounds SearchBounds{
+		CurrentNode.WorldLocation,
+		PrevNode.WorldLocation,
+		CurrentNode.WorldLocation,
+		NextNode.WorldLocation
+	};
 
-	FHitResult LastHit;
-	FVector LastTraceStart = FVector::ZeroVector;
-	FVector LastTraceEnd = FVector::ZeroVector;
+	FHitResult LastForwardSurfaceHit;
+	FVector LastBlockedTraceStart = FVector::ZeroVector;
+	FVector LastBlockedTraceEnd = FVector::ZeroVector;
 
-	const int32 MaxIterations = FMath::Max(1, MoveSettings.MaxEffectivePointSearchIterations);
-	for (int32 Iteration = 0; Iteration < MaxIterations; ++Iteration)
+	const FRayRopeTraceContext MoveTraceContext = FRayRopeTrace::MakeTraceContextIgnoringEndpointActors(
+		TraceContext,
+		&PrevNode,
+		&NextNode);
+
+	const int32 MaxSurfaceHitSearchIterations =
+		FMath::Max(1, MoveSettings.MaxEffectivePointSearchIterations);
+	for (int32 Iteration = 0; Iteration < MaxSurfaceHitSearchIterations; ++Iteration)
 	{
-		if (FVector::DistSquared(PrevCurrentNoHitPoint, PrevCurrentHitPoint) <= SearchEpsilonSquared ||
-			FVector::DistSquared(CurrentNextNoHitPoint, CurrentNextHitPoint) <= SearchEpsilonSquared)
+		if (SearchBounds.IsResolved(SearchEpsilonSquared))
 		{
 			break;
 		}
 
-		const FVector TraceStart = (PrevCurrentNoHitPoint + PrevCurrentHitPoint) * 0.5f;
-		const FVector TraceEnd = (CurrentNextNoHitPoint + CurrentNextHitPoint) * 0.5f;
+		const FVector TraceStart = SearchBounds.GetTraceStart();
+		const FVector TraceEnd = SearchBounds.GetTraceEnd();
 		const FRayRopeNode TraceStartNode = CreateMovePointNode(TraceStart);
 		const FRayRopeNode TraceEndNode = CreateMovePointNode(TraceEnd);
 
 		FHitResult TraceHit;
 		if (TryTraceMoveHit(
-			TraceContext,
+			MoveTraceContext,
 			MoveSettings,
 			TraceStartNode,
 			TraceEndNode,
 			TraceHit))
 		{
-			LastHit = TraceHit;
-			LastTraceStart = TraceStart;
-			LastTraceEnd = TraceEnd;
+			LastForwardSurfaceHit = TraceHit;
+			LastBlockedTraceStart = TraceStart;
+			LastBlockedTraceEnd = TraceEnd;
 
 			// Keep the search bounded by the last blocking line; farther segment halves cannot improve the hit.
-			PrevCurrentHitPoint = TraceStart;
-			CurrentNextHitPoint = TraceEnd;
+			SearchBounds.MarkBlocked(TraceStart, TraceEnd);
 			continue;
 		}
 
-		PrevCurrentNoHitPoint = TraceStart;
-		CurrentNextNoHitPoint = TraceEnd;
+		SearchBounds.MarkClear(TraceStart, TraceEnd);
 	}
 
-	if (!LastHit.bBlockingHit)
+	if (!LastForwardSurfaceHit.bBlockingHit)
 	{
 		return false;
 	}
 
-	const FRayRopeNode ReverseTraceStartNode = CreateMovePointNode(LastTraceEnd);
-	const FRayRopeNode ReverseTraceEndNode = CreateMovePointNode(LastTraceStart);
-	FHitResult ReverseHit;
+	const FRayRopeNode ReverseTraceStartNode = CreateMovePointNode(LastBlockedTraceEnd);
+	const FRayRopeNode ReverseTraceEndNode = CreateMovePointNode(LastBlockedTraceStart);
+	FHitResult ReverseSurfaceHit;
 	if (!TryTraceMoveHit(
-		TraceContext,
+		MoveTraceContext,
 		MoveSettings,
 		ReverseTraceStartNode,
 		ReverseTraceEndNode,
-		ReverseHit))
+		ReverseSurfaceHit))
 	{
 		return false;
 	}
 
-	OutPrevCurrentToCurrentNextHit = LastHit;
-	OutCurrentNextToPrevCurrentHit = ReverseHit;
+	OutHits.ForwardSurfaceHit = LastForwardSurfaceHit;
+	OutHits.ReverseSurfaceHit = ReverseSurfaceHit;
 	return true;
 }
 
-bool FRayRopeMoveSolver::TryTraceMoveHit(
+bool TryTraceMoveHit(
 	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeMoveSettings& MoveSettings,
 	const FRayRopeNode& StartNode,
@@ -469,12 +537,15 @@ bool FRayRopeMoveSolver::TryTraceMoveHit(
 	return true;
 }
 
-bool FRayRopeMoveSolver::TryFindPlaneIntersectionRailDirection(
+bool TryBuildRailFromSurfaceHits(
 	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& CurrentNode,
 	const FHitResult& FirstSurfaceHit,
 	const FHitResult& SecondSurfaceHit,
-	FVector& OutRailDirection)
+	FMoveRail& OutRail)
 {
+	OutRail = FMoveRail();
+
 	if (!FirstSurfaceHit.bBlockingHit || !SecondSurfaceHit.bBlockingHit)
 	{
 		return false;
@@ -494,86 +565,428 @@ bool FRayRopeMoveSolver::TryFindPlaneIntersectionRailDirection(
 		return false;
 	}
 
-	const float FirstPlaneDistance =
-		FVector::DotProduct(FirstNormal, FirstSurfaceHit.ImpactPoint);
-	const float SecondPlaneDistance =
-		FVector::DotProduct(SecondNormal, SecondSurfaceHit.ImpactPoint);
-	const FVector LinePoint = FVector::CrossProduct(
-		FirstPlaneDistance * SecondNormal - SecondPlaneDistance * FirstNormal,
-		RailDirection) / RailDirectionSizeSquared;
-	if (LinePoint.ContainsNaN())
+	const FVector RailDirectionNormal = RailDirection.GetSafeNormal();
+	if (RailDirectionNormal.IsNearlyZero())
 	{
 		return false;
 	}
 
-	OutRailDirection = RailDirection.GetSafeNormal();
-
-	if (OutRailDirection.IsNearlyZero())
+	FVector OffsetDirection = FirstNormal + SecondNormal;
+	if (OffsetDirection.IsNearlyZero())
 	{
-		OutRailDirection = FVector::ZeroVector;
 		return false;
 	}
 
-	return true;
+	OffsetDirection = OffsetDirection.GetSafeNormal();
+	const FRayRopeSpan CurrentPointSpan{&CurrentNode, &CurrentNode};
+	const FVector SurfaceRailPoint = FRayRopeSurfaceGeometry::CalculateRedirectLocation(
+		CurrentPointSpan,
+		FirstSurfaceHit,
+		&SecondSurfaceHit);
+	const float SurfaceOffset = FMath::Max(MoveSettings.SurfaceOffset, KINDA_SMALL_NUMBER);
+
+	OutRail.Origin = SurfaceRailPoint + OffsetDirection * SurfaceOffset;
+	OutRail.Direction = RailDirectionNormal;
+	return !OutRail.Origin.ContainsNaN();
 }
 
-bool FRayRopeMoveSolver::TryFindEffectivePointOnRail(
-	const FRayRopeTraceContext& TraceContext,
+bool TryFindEffectivePointOnRail(
 	const FRayRopeMoveSettings& MoveSettings,
-	const FVector& RailDirection,
+	const FMoveRail& Rail,
 	const FRayRopeNode& PrevNode,
 	const FRayRopeNode& CurrentNode,
 	const FRayRopeNode& NextNode,
 	FVector& OutEffectivePoint)
 {
-	const FVector NormalizedRailDirection = RailDirection.GetSafeNormal();
-	if (NormalizedRailDirection.IsNearlyZero() ||
-		!IsValid(TraceContext.World))
+	if (Rail.Origin.ContainsNaN() || Rail.Direction.IsNearlyZero())
 	{
 		return false;
 	}
 
+	const float CurrentRailParameter =
+		FVector::DotProduct(CurrentNode.WorldLocation - Rail.Origin, Rail.Direction);
 	const float PrevRailParameter =
-		FVector::DotProduct(PrevNode.WorldLocation - CurrentNode.WorldLocation, NormalizedRailDirection);
+		FVector::DotProduct(PrevNode.WorldLocation - Rail.Origin, Rail.Direction);
 	const float NextRailParameter =
-		FVector::DotProduct(NextNode.WorldLocation - CurrentNode.WorldLocation, NormalizedRailDirection);
-	if (!FMath::IsFinite(PrevRailParameter) || !FMath::IsFinite(NextRailParameter))
+		FVector::DotProduct(NextNode.WorldLocation - Rail.Origin, Rail.Direction);
+	if (!FMath::IsFinite(CurrentRailParameter) ||
+		!FMath::IsFinite(PrevRailParameter) ||
+		!FMath::IsFinite(NextRailParameter))
 	{
 		return false;
 	}
 
 	const FMoveRailSearchContext SearchContext{
-		TraceContext,
 		MoveSettings,
 		PrevNode,
-		CurrentNode,
 		NextNode,
-		NormalizedRailDirection
+		Rail,
+		CurrentRailParameter
 	};
 
-	const float LeftRailParameter = FMath::Min(0.f, FMath::Min(PrevRailParameter, NextRailParameter));
-	const float RightRailParameter = FMath::Max(0.f, FMath::Max(PrevRailParameter, NextRailParameter));
+	const float LeftRailParameter = FMath::Min(
+		CurrentRailParameter,
+		FMath::Min(PrevRailParameter, NextRailParameter));
+	const float RightRailParameter = FMath::Max(
+		CurrentRailParameter,
+		FMath::Max(PrevRailParameter, NextRailParameter));
 	const float TargetRailParameter = FindBestRailParameter(
 		SearchContext,
 		LeftRailParameter,
 		RightRailParameter);
 
-	float ReachableRailParameter = 0.f;
-	if (!TryClampRailParameterToReachablePath(SearchContext, TargetRailParameter, ReachableRailParameter))
+	OutEffectivePoint = GetRailPoint(
+		SearchContext,
+		TargetRailParameter);
+	return !OutEffectivePoint.ContainsNaN();
+}
+
+bool TryFindValidEffectivePoint(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& TargetPoint,
+	FVector& OutEffectivePoint)
+{
+	OutEffectivePoint = FVector::ZeroVector;
+	if (TargetPoint.ContainsNaN())
 	{
 		return false;
 	}
 
-	OutEffectivePoint = GetRailPoint(
-		SearchContext,
-		ReachableRailParameter);
-	return !OutEffectivePoint.ContainsNaN();
+	if (IsValidMovePoint(
+		TraceContext,
+		MoveSettings,
+		PrevNode,
+		CurrentNode,
+		NextNode,
+		TargetPoint))
+	{
+		OutEffectivePoint = TargetPoint;
+		return true;
+	}
+
+	if (!FRayRopeTrace::IsValidFreePoint(
+		TraceContext,
+		CurrentNode.WorldLocation))
+	{
+		return false;
+	}
+
+	FVector LastValidPoint = CurrentNode.WorldLocation;
+	FVector LastInvalidPoint = TargetPoint;
+	bool bFoundValidPoint = false;
+	const int32 MaxSearchIterations =
+		FMath::Max(1, MoveSettings.MaxEffectivePointSearchIterations);
+	for (int32 Iteration = 0; Iteration < MaxSearchIterations; ++Iteration)
+	{
+		const FVector CandidatePoint = (LastValidPoint + LastInvalidPoint) * 0.5f;
+		if (FVector::DistSquared(LastValidPoint, LastInvalidPoint) <=
+			FMath::Square(MoveSettings.MoveSolverTolerance))
+		{
+			break;
+		}
+
+		if (IsValidMovePoint(
+			TraceContext,
+			MoveSettings,
+			PrevNode,
+			CurrentNode,
+			NextNode,
+			CandidatePoint))
+		{
+			LastValidPoint = CandidatePoint;
+			bFoundValidPoint = true;
+			continue;
+		}
+
+		LastInvalidPoint = CandidatePoint;
+	}
+
+	if (!bFoundValidPoint ||
+		LastValidPoint.Equals(CurrentNode.WorldLocation, MoveSettings.MoveSolverTolerance))
+	{
+		return false;
+	}
+
+	OutEffectivePoint = LastValidPoint;
+	return true;
 }
 
-FRayRopeNode FRayRopeMoveSolver::CreateMovePointNode(const FVector& WorldLocation)
+bool TryBuildMoveWithNewNodes(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& TargetPoint,
+	FMoveResult& OutResult)
+{
+	OutResult = FMoveResult();
+
+	if (!IsReachableMoveTarget(
+		TraceContext,
+		MoveSettings,
+		PrevNode,
+		CurrentNode,
+		NextNode,
+		TargetPoint))
+	{
+		return false;
+	}
+
+	const FRayRopeNode CandidateNode = CreateMoveCandidateNode(CurrentNode, TargetPoint);
+	const FRayRopeSpan PrevCurrentSpan{&PrevNode, &CurrentNode};
+	const FRayRopeSpan CurrentNextSpan{&CurrentNode, &NextNode};
+	const FRayRopeSpan PrevCandidateSpan{&PrevNode, &CandidateNode};
+	const FRayRopeSpan CandidateNextSpan{&CandidateNode, &NextNode};
+
+	const bool bPrevCandidateBlocked =
+		FRayRopeTrace::HasBlockingSpanHit(TraceContext, PrevCandidateSpan);
+	const bool bCandidateNextBlocked =
+		FRayRopeTrace::HasBlockingSpanHit(TraceContext, CandidateNextSpan);
+	if (!bPrevCandidateBlocked && !bCandidateNextBlocked)
+	{
+		return false;
+	}
+
+	if (bPrevCandidateBlocked &&
+		!FRayRopeNodeBuilder::BuildNodesForSpanTransition(
+			TraceContext,
+			MoveSettings.NodeBuildSettings,
+			PrevCandidateSpan,
+			PrevCurrentSpan,
+			OutResult.BeforeCurrentNodes))
+	{
+		return false;
+	}
+
+	if (bCandidateNextBlocked &&
+		!FRayRopeNodeBuilder::BuildNodesForSpanTransition(
+			TraceContext,
+			MoveSettings.NodeBuildSettings,
+			CandidateNextSpan,
+			CurrentNextSpan,
+			OutResult.AfterCurrentNodes))
+	{
+		return false;
+	}
+
+	if (OutResult.BeforeCurrentNodes.Num() == 0 &&
+		OutResult.AfterCurrentNodes.Num() == 0)
+	{
+		return false;
+	}
+
+	OutResult.EffectivePoint = TargetPoint;
+	return true;
+}
+
+bool IsReachableMoveTarget(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& CandidatePoint)
+{
+	if (CandidatePoint.ContainsNaN() ||
+		!FRayRopeTrace::IsValidFreePoint(TraceContext, CandidatePoint))
+	{
+		return false;
+	}
+
+	const float MinNodeDistanceSquared =
+		FMath::Square(FMath::Max(MoveSettings.MoveSolverTolerance, KINDA_SMALL_NUMBER));
+	if (FVector::DistSquared(CandidatePoint, PrevNode.WorldLocation) <= MinNodeDistanceSquared ||
+		FVector::DistSquared(CandidatePoint, NextNode.WorldLocation) <= MinNodeDistanceSquared)
+	{
+		return false;
+	}
+
+	if (!IsMoveImprovementSignificant(
+		TraceContext,
+		MoveSettings,
+		PrevNode,
+		CurrentNode,
+		NextNode,
+		CandidatePoint))
+	{
+		return false;
+	}
+
+	const FRayRopeNodeTransition Transition{
+		&PrevNode,
+		&CurrentNode,
+		&NextNode,
+		CandidatePoint
+	};
+	return FRayRopeTransitionValidator::IsTransitionNodePathClear(
+		TraceContext,
+		BuildMoveTransitionValidationSettings(MoveSettings),
+		Transition);
+}
+
+bool IsValidMovePoint(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& CandidatePoint)
+{
+	if (CandidatePoint.ContainsNaN())
+	{
+		return false;
+	}
+
+	const float MinNodeDistanceSquared =
+		FMath::Square(FMath::Max(MoveSettings.MoveSolverTolerance, KINDA_SMALL_NUMBER));
+	if (FVector::DistSquared(CandidatePoint, PrevNode.WorldLocation) <= MinNodeDistanceSquared ||
+		FVector::DistSquared(CandidatePoint, NextNode.WorldLocation) <= MinNodeDistanceSquared)
+	{
+		return false;
+	}
+
+	if (!IsMoveImprovementSignificant(
+		TraceContext,
+		MoveSettings,
+		PrevNode,
+		CurrentNode,
+		NextNode,
+		CandidatePoint))
+	{
+		return false;
+	}
+
+	const FRayRopeNodeTransition Transition{
+		&PrevNode,
+		&CurrentNode,
+		&NextNode,
+		CandidatePoint
+	};
+	return FRayRopeTransitionValidator::IsNodeTransitionClear(
+		TraceContext,
+		BuildMoveTransitionValidationSettings(MoveSettings),
+		Transition);
+}
+
+bool TryQueueMoveInsertions(
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& MovedNode,
+	const FRayRopeNode& NextNode,
+	int32 NodeIndex,
+	FMoveResult& MoveResult,
+	FRayRopePendingNodeInsertionBuffer& PendingInsertions)
+{
+	if (MoveResult.BeforeCurrentNodes.Num() == 0 &&
+		MoveResult.AfterCurrentNodes.Num() == 0)
+	{
+		return true;
+	}
+
+	FRayRopePendingNodeInsertionBuffer UpdatedPendingInsertions = PendingInsertions;
+
+	if (MoveResult.BeforeCurrentNodes.Num() > 0 &&
+		!FRayRopeNodeBuilder::CanInsertNodes(
+			MoveSettings.NodeBuildSettings,
+			PrevNode,
+			MovedNode,
+			NodeIndex,
+			MoveResult.BeforeCurrentNodes,
+			UpdatedPendingInsertions))
+	{
+		return false;
+	}
+
+	FRayRopeNodeBuilder::AppendPendingInsertions(
+		NodeIndex,
+		MoveResult.BeforeCurrentNodes,
+		UpdatedPendingInsertions);
+
+	if (MoveResult.AfterCurrentNodes.Num() > 0 &&
+		!FRayRopeNodeBuilder::CanInsertNodes(
+			MoveSettings.NodeBuildSettings,
+			MovedNode,
+			NextNode,
+			NodeIndex + 1,
+			MoveResult.AfterCurrentNodes,
+			UpdatedPendingInsertions))
+	{
+		return false;
+	}
+
+	FRayRopeNodeBuilder::AppendPendingInsertions(
+		NodeIndex + 1,
+		MoveResult.AfterCurrentNodes,
+		UpdatedPendingInsertions);
+
+	PendingInsertions = MoveTemp(UpdatedPendingInsertions);
+	return true;
+}
+
+FRayRopeTransitionValidationSettings BuildMoveTransitionValidationSettings(
+	const FRayRopeMoveSettings& MoveSettings)
+{
+	FRayRopeTransitionValidationSettings ValidationSettings;
+	ValidationSettings.SolverTolerance = MoveSettings.MoveSolverTolerance;
+	ValidationSettings.MaxTransitionValidationIterations =
+		FMath::Max(0, MoveSettings.MaxEffectivePointSearchIterations);
+	return ValidationSettings;
+}
+
+float CalculateMoveDistanceSum(
+	const FRayRopeNode& PrevNode,
+	const FVector& MiddleLocation,
+	const FRayRopeNode& NextNode)
+{
+	return FVector::Dist(PrevNode.WorldLocation, MiddleLocation) +
+		FVector::Dist(MiddleLocation, NextNode.WorldLocation);
+}
+
+bool IsMoveImprovementSignificant(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeMoveSettings& MoveSettings,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CurrentNode,
+	const FRayRopeNode& NextNode,
+	const FVector& CandidatePoint)
+{
+	if (!FRayRopeTrace::IsValidFreePoint(TraceContext, CurrentNode.WorldLocation))
+	{
+		return true;
+	}
+
+	const float CurrentDistanceSum = CalculateMoveDistanceSum(
+		PrevNode,
+		CurrentNode.WorldLocation,
+		NextNode);
+	const float CandidateDistanceSum = CalculateMoveDistanceSum(
+		PrevNode,
+		CandidatePoint,
+		NextNode);
+	const float RequiredImprovement =
+		FMath::Max(MoveSettings.MoveSolverTolerance, KINDA_SMALL_NUMBER);
+	return CandidateDistanceSum + RequiredImprovement < CurrentDistanceSum;
+}
+
+FRayRopeNode CreateMovePointNode(const FVector& WorldLocation)
 {
 	FRayRopeNode Node;
 	Node.NodeType = ERayRopeNodeType::Redirect;
 	Node.WorldLocation = WorldLocation;
 	return Node;
+}
+
+FRayRopeNode CreateMoveCandidateNode(
+	const FRayRopeNode& SourceNode,
+	const FVector& WorldLocation)
+{
+	FRayRopeNode CandidateNode = SourceNode;
+	CandidateNode.WorldLocation = WorldLocation;
+	return CandidateNode;
+}
 }

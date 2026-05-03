@@ -1,11 +1,6 @@
 #include "RayRopeTrace.h"
 
 #include "CollisionQueryParams.h"
-#include "CollisionShape.h"
-#include "Components/PrimitiveComponent.h"
-#include "Components/SceneComponent.h"
-#include "Engine/World.h"
-#include "GameFramework/Actor.h"
 
 namespace
 {
@@ -15,13 +10,63 @@ bool IsInitialTraceHit(const FHitResult& Hit)
 		(Hit.Distance <= KINDA_SMALL_NUMBER && Hit.Time <= KINDA_SMALL_NUMBER);
 }
 
+bool IsTraceEnteringHitSurface(
+	const FVector& StartLocation,
+	const FVector& EndLocation,
+	const FHitResult& SurfaceHit)
+{
+	const FVector TraceDirection = (EndLocation - StartLocation).GetSafeNormal();
+	const FVector SurfaceNormal = SurfaceHit.ImpactNormal.GetSafeNormal();
+	if (TraceDirection.IsNearlyZero() || SurfaceNormal.IsNearlyZero())
+	{
+		return false;
+	}
+
+	return FVector::DotProduct(TraceDirection, SurfaceNormal) < -KINDA_SMALL_NUMBER;
+}
+
+void BuildTraceQueryParams(
+	const FRayRopeTraceSettings& TraceSettings,
+	FCollisionQueryParams& QueryParams)
+{
+	QueryParams.bReturnPhysicalMaterial = false;
+	QueryParams.bTraceComplex = TraceSettings.bTraceComplex;
+
+	if (TraceSettings.OwnerActor != nullptr)
+	{
+		QueryParams.AddIgnoredActor(TraceSettings.OwnerActor);
+	}
+}
+
 const AActor* GetIgnoredEndpointActor(const FRayRopeNode* Node)
 {
-	return Node != nullptr &&
-		Node->NodeType == ERayRopeNodeType::Anchor &&
-		IsValid(Node->AttachedActor)
-		? Node->AttachedActor
-		: nullptr;
+	if (Node == nullptr)
+	{
+		return nullptr;
+	}
+
+	if (Node->NodeType != ERayRopeNodeType::Anchor)
+	{
+		return nullptr;
+	}
+
+	if (!IsValid(Node->AttachedActor))
+	{
+		return nullptr;
+	}
+
+	return Node->AttachedActor;
+}
+
+bool TryGetIgnoredEndpointActors(
+	const FRayRopeNode* StartNode,
+	const FRayRopeNode* EndNode,
+	const AActor*& OutStartAttachedActor,
+	const AActor*& OutEndAttachedActor)
+{
+	OutStartAttachedActor = GetIgnoredEndpointActor(StartNode);
+	OutEndAttachedActor = GetIgnoredEndpointActor(EndNode);
+	return OutStartAttachedActor != nullptr || OutEndAttachedActor != nullptr;
 }
 
 FCollisionQueryParams BuildSpanQueryParams(
@@ -71,11 +116,11 @@ bool TryTraceBlockingHitWithQueryParams(
 		return false;
 	}
 
-	const bool bAcceptForwardHit =
+	const bool bForwardHitUsable =
 		!IsInitialTraceHit(SurfaceHit) ||
-		FRayRopeTrace::IsTraceEnteringHitSurface(StartLocation, EndLocation, SurfaceHit);
+		IsTraceEnteringHitSurface(StartLocation, EndLocation, SurfaceHit);
 
-	if (bAcceptForwardHit)
+	if (bForwardHitUsable)
 	{
 		return true;
 	}
@@ -90,14 +135,14 @@ bool TryTraceBlockingHitWithQueryParams(
 
 	if (FallbackHit.bBlockingHit)
 	{
-		const bool bAcceptFallbackHit =
+		const bool bReverseHitUsable =
 			!IsInitialTraceHit(FallbackHit) ||
-			FRayRopeTrace::IsTraceEnteringHitSurface(
+			IsTraceEnteringHitSurface(
 				EndLocation,
 				StartLocation,
 				FallbackHit);
 
-		if (bAcceptFallbackHit)
+		if (bReverseHitUsable)
 		{
 			SurfaceHit = FallbackHit;
 			return true;
@@ -108,7 +153,7 @@ bool TryTraceBlockingHitWithQueryParams(
 	return false;
 }
 
-bool IsPointInsideGeometryWithQueryParams(
+bool IsPointOverlappingGeometryWithQueryParams(
 	const FRayRopeTraceContext& TraceContext,
 	const FVector& WorldLocation,
 	const FCollisionQueryParams& QueryParams,
@@ -141,48 +186,55 @@ FRayRopeTraceContext FRayRopeTrace::MakeTraceContext(
 	return TraceContext;
 }
 
-void FRayRopeTrace::BuildTraceQueryParams(
-	const FRayRopeTraceSettings& TraceSettings,
-	FCollisionQueryParams& QueryParams)
-{
-	QueryParams.bReturnPhysicalMaterial = false;
-	QueryParams.bTraceComplex = TraceSettings.bTraceComplex;
-
-	if (TraceSettings.OwnerActor != nullptr)
-	{
-		QueryParams.AddIgnoredActor(TraceSettings.OwnerActor);
-	}
-}
-
 bool FRayRopeTrace::TryTraceSpan(
 	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeSpan& Span,
 	FHitResult& SurfaceHit)
 {
-	if (!Span.IsValid() || Span.IsDegenerate(KINDA_SMALL_NUMBER))
+	if (!Span.IsValid())
 	{
 		SurfaceHit = FHitResult();
 		return false;
 	}
 
-	const AActor* StartAttachedActor = GetIgnoredEndpointActor(Span.StartNode);
-	const AActor* EndAttachedActor = GetIgnoredEndpointActor(Span.EndNode);
-	if (StartAttachedActor == nullptr && EndAttachedActor == nullptr)
+	const FVector StartLocation = Span.GetStartLocation();
+	const FVector EndLocation = Span.GetEndLocation();
+	if (StartLocation.Equals(EndLocation, KINDA_SMALL_NUMBER))
+	{
+		SurfaceHit = FHitResult();
+		return false;
+	}
+
+	const AActor* StartAttachedActor = nullptr;
+	const AActor* EndAttachedActor = nullptr;
+	if (!TryGetIgnoredEndpointActors(
+		Span.StartNode,
+		Span.EndNode,
+		StartAttachedActor,
+		EndAttachedActor))
 	{
 		return TryTraceBlockingHitWithQueryParams(
 			TraceContext,
-			Span.GetStartLocation(),
-			Span.GetEndLocation(),
+			StartLocation,
+			EndLocation,
 			TraceContext.QueryParams,
 			SurfaceHit);
 	}
 
 	return TryTraceBlockingHitWithQueryParams(
 		TraceContext,
-		Span.GetStartLocation(),
-		Span.GetEndLocation(),
+		StartLocation,
+		EndLocation,
 		BuildSpanQueryParams(TraceContext, StartAttachedActor, EndAttachedActor),
 		SurfaceHit);
+}
+
+bool FRayRopeTrace::HasBlockingSpanHit(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeSpan& Span)
+{
+	FHitResult SurfaceHit;
+	return TryTraceSpan(TraceContext, Span, SurfaceHit);
 }
 
 bool FRayRopeTrace::TryTraceBlockingHit(
@@ -199,19 +251,52 @@ bool FRayRopeTrace::TryTraceBlockingHit(
 		SurfaceHit);
 }
 
-bool FRayRopeTrace::IsPointInsideGeometry(
+bool FRayRopeTrace::HasBlockingHit(
+	const FRayRopeTraceContext& TraceContext,
+	const FVector& StartLocation,
+	const FVector& EndLocation)
+{
+	FHitResult SurfaceHit;
+	return TryTraceBlockingHit(
+		TraceContext,
+		StartLocation,
+		EndLocation,
+		SurfaceHit);
+}
+
+FRayRopeTraceContext FRayRopeTrace::MakeTraceContextIgnoringEndpointActors(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeNode* StartNode,
+	const FRayRopeNode* EndNode)
+{
+	FRayRopeTraceContext EndpointTraceContext = TraceContext;
+	const AActor* StartAttachedActor = nullptr;
+	const AActor* EndAttachedActor = nullptr;
+	TryGetIgnoredEndpointActors(
+		StartNode,
+		EndNode,
+		StartAttachedActor,
+		EndAttachedActor);
+	EndpointTraceContext.QueryParams = BuildSpanQueryParams(
+		TraceContext,
+		StartAttachedActor,
+		EndAttachedActor);
+	return EndpointTraceContext;
+}
+
+bool FRayRopeTrace::IsPointOverlappingGeometry(
 	const FRayRopeTraceContext& TraceContext,
 	const FVector& WorldLocation,
 	float ProbeRadius)
 {
-	return IsPointInsideGeometryWithQueryParams(
+	return IsPointOverlappingGeometryWithQueryParams(
 		TraceContext,
 		WorldLocation,
 		TraceContext.QueryParams,
 		ProbeRadius);
 }
 
-bool FRayRopeTrace::IsNodeInsideGeometry(
+bool FRayRopeTrace::IsNodeOverlappingGeometry(
 	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeNode& Node,
 	float ProbeRadius)
@@ -219,63 +304,32 @@ bool FRayRopeTrace::IsNodeInsideGeometry(
 	const AActor* IgnoredActor = GetIgnoredEndpointActor(&Node);
 	if (IgnoredActor == nullptr)
 	{
-		return IsPointInsideGeometry(TraceContext, Node.WorldLocation, ProbeRadius);
+		return IsPointOverlappingGeometry(TraceContext, Node.WorldLocation, ProbeRadius);
 	}
 
 	FCollisionQueryParams QueryParams = TraceContext.QueryParams;
 	QueryParams.AddIgnoredActor(IgnoredActor);
-	return IsPointInsideGeometryWithQueryParams(
+	return IsPointOverlappingGeometryWithQueryParams(
 		TraceContext,
 		Node.WorldLocation,
 		QueryParams,
 		ProbeRadius);
 }
 
-bool FRayRopeTrace::CanUseHitForRedirectWrap(
-	const FHitResult& SurfaceHit,
-	bool bAllowWrapOnMovableObjects)
+bool FRayRopeTrace::IsValidFreePoint(
+	const FRayRopeTraceContext& TraceContext,
+	const FVector& WorldLocation,
+	float ProbeRadius)
 {
-	if (!SurfaceHit.bBlockingHit)
-	{
-		return false;
-	}
-
-	if (bAllowWrapOnMovableObjects)
-	{
-		return true;
-	}
-
-	const UPrimitiveComponent* HitComponent = SurfaceHit.GetComponent();
-	if (IsValid(HitComponent))
-	{
-		if (HitComponent->Mobility == EComponentMobility::Movable ||
-			HitComponent->IsSimulatingPhysics())
-		{
-			return false;
-		}
-	}
-
-	const AActor* HitActor = SurfaceHit.GetActor();
-	if (!IsValid(HitActor))
-	{
-		return HitComponent != nullptr;
-	}
-
-	const USceneComponent* RootComponent = HitActor->GetRootComponent();
-	return !IsValid(RootComponent) || RootComponent->Mobility != EComponentMobility::Movable;
+	return !WorldLocation.ContainsNaN() &&
+		!IsPointOverlappingGeometry(TraceContext, WorldLocation, ProbeRadius);
 }
 
-bool FRayRopeTrace::IsTraceEnteringHitSurface(
-	const FVector& StartLocation,
-	const FVector& EndLocation,
-	const FHitResult& SurfaceHit)
+bool FRayRopeTrace::IsValidFreeNode(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeNode& Node,
+	float ProbeRadius)
 {
-	const FVector TraceDirection = (EndLocation - StartLocation).GetSafeNormal();
-	const FVector SurfaceNormal = SurfaceHit.ImpactNormal.GetSafeNormal();
-	if (TraceDirection.IsNearlyZero() || SurfaceNormal.IsNearlyZero())
-	{
-		return false;
-	}
-
-	return FVector::DotProduct(TraceDirection, SurfaceNormal) < -KINDA_SMALL_NUMBER;
+	return !Node.WorldLocation.ContainsNaN() &&
+		!IsNodeOverlappingGeometry(TraceContext, Node, ProbeRadius);
 }

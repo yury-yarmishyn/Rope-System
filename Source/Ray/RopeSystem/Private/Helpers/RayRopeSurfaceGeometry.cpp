@@ -48,6 +48,24 @@ FVector FRayRopeSurfaceGeometry::CalculateRedirectLocation(
 	return ClosestPointOnIntersectionLine;
 }
 
+FVector FRayRopeSurfaceGeometry::CalculateSurfaceOffsetDirection(
+	const FHitResult& FrontSurfaceHit,
+	const FHitResult* BackSurfaceHit)
+{
+	if (BackSurfaceHit == nullptr)
+	{
+		return FrontSurfaceHit.ImpactNormal.GetSafeNormal();
+	}
+
+	FVector OffsetDirection = FrontSurfaceHit.ImpactNormal + BackSurfaceHit->ImpactNormal;
+	if (OffsetDirection.IsNearlyZero())
+	{
+		OffsetDirection = FrontSurfaceHit.ImpactNormal;
+	}
+
+	return OffsetDirection.GetSafeNormal();
+}
+
 FVector FRayRopeSurfaceGeometry::CalculateProjectedPointOnHitPlane(
 	const FRayRopeSpan& ValidSpan,
 	const FHitResult& SurfaceHit)

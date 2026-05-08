@@ -180,7 +180,6 @@ FRayRopeTraceContext FRayRopeTrace::MakeTraceContext(
 	FRayRopeTraceContext TraceContext;
 	TraceContext.World = TraceSettings.World;
 	TraceContext.TraceChannel = TraceSettings.TraceChannel;
-	TraceContext.bTraceComplex = TraceSettings.bTraceComplex;
 	TraceContext.QueryParams = MoveTemp(QueryParams);
 	BuildTraceQueryParams(TraceSettings, TraceContext.QueryParams);
 	return TraceContext;

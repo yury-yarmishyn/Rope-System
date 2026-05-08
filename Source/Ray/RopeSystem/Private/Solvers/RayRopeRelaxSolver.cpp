@@ -5,6 +5,31 @@
 
 namespace
 {
+enum class ERelaxNodeResult
+{
+	Unchanged,
+	Collapsed,
+	Removed
+};
+
+struct FRelaxSolveContext
+{
+	const FRayRopeTraceContext& TraceContext;
+	FRayRopeTransitionValidationSettings TransitionValidationSettings;
+	float SolverTolerance = 0.f;
+
+	FRelaxSolveContext(
+		const FRayRopeTraceContext& InTraceContext,
+		const FRayRopeRelaxSettings& InRelaxSettings)
+		: TraceContext(InTraceContext)
+	{
+		SolverTolerance = FMath::Max(0.f, InRelaxSettings.RelaxSolverTolerance);
+		TransitionValidationSettings.SolverTolerance = SolverTolerance;
+		TransitionValidationSettings.MaxTransitionValidationIterations =
+			FMath::Max(0, InRelaxSettings.MaxRelaxCollapseIterations);
+	}
+};
+
 FVector CalculateCollapseTargetOnShortcutLine(
 	const FRayRopeNode& PrevNode,
 	const FRayRopeNode& CurrentNode,
@@ -23,194 +48,176 @@ FVector CalculateCollapseTargetOnShortcutLine(
 	return PrevNode.WorldLocation + Dir * FMath::Clamp(T, 0.f, 1.f);
 }
 
-FRayRopeTransitionValidationSettings BuildRelaxTransitionValidationSettings(
-	const FRayRopeRelaxSettings& RelaxSettings)
+struct FRelaxNodeWindow
 {
-	FRayRopeTransitionValidationSettings ValidationSettings;
-	ValidationSettings.SolverTolerance = RelaxSettings.RelaxSolverTolerance;
-	ValidationSettings.MaxTransitionValidationIterations =
-		FMath::Max(0, RelaxSettings.MaxRelaxCollapseIterations);
-	return ValidationSettings;
-}
+	const FRayRopeNode& PrevNode;
+	FRayRopeNode& CurrentNode;
+	const FRayRopeNode& NextNode;
+	FVector CollapseTarget = FVector::ZeroVector;
 
-bool IsShortcutSpanClear(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeNode& PrevNode,
-	const FRayRopeNode& NextNode)
-{
-	const FRayRopeSpan ShortcutSpan{&PrevNode, &NextNode};
-	return !FRayRopeTrace::HasBlockingSpanHit(TraceContext, ShortcutSpan);
-}
-
-bool ValidateSegmentSpans(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeSegment& Segment)
-{
-	for (const FRayRopeNode& Node : Segment.Nodes)
+	FRelaxNodeWindow(
+		const FRayRopeNode& InPrevNode,
+		FRayRopeNode& InCurrentNode,
+		const FRayRopeNode& InNextNode)
+		: PrevNode(InPrevNode)
+		, CurrentNode(InCurrentNode)
+		, NextNode(InNextNode)
+		, CollapseTarget(CalculateCollapseTargetOnShortcutLine(
+			InPrevNode,
+			InCurrentNode,
+			InNextNode))
 	{
-		if (!FRayRopeTrace::IsValidFreeNode(TraceContext, Node))
-		{
-			return false;
-		}
 	}
 
-	for (int32 NodeIndex = 1; NodeIndex < Segment.Nodes.Num(); ++NodeIndex)
+	bool IsCurrentPointFree(const FRelaxSolveContext& SolveContext) const
 	{
-		const FRayRopeSpan Span{&Segment.Nodes[NodeIndex - 1], &Segment.Nodes[NodeIndex]};
-		if (FRayRopeTrace::HasBlockingSpanHit(TraceContext, Span))
-		{
-			return false;
-		}
+		return FRayRopeTrace::IsValidFreePoint(
+			SolveContext.TraceContext,
+			CurrentNode.WorldLocation);
 	}
 
-	return true;
+	bool IsCurrentAtCollapseTarget(const FRelaxSolveContext& SolveContext) const
+	{
+		return CurrentNode.WorldLocation.Equals(
+			CollapseTarget,
+			SolveContext.SolverTolerance);
+	}
+};
+
+bool IsShortcutClear(
+	const FRelaxSolveContext& SolveContext,
+	const FRelaxNodeWindow& NodeWindow)
+{
+	const FRayRopeSpan ShortcutSpan{&NodeWindow.PrevNode, &NodeWindow.NextNode};
+	return !FRayRopeTrace::HasBlockingSpanHit(SolveContext.TraceContext, ShortcutSpan);
 }
 
-bool CanCollapseRelaxNodeToTarget(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeRelaxSettings& RelaxSettings,
-	const FRayRopeNode& PrevNode,
-	const FRayRopeNode& CurrentNode,
-	const FRayRopeNode& NextNode,
-	const FVector& CollapseTarget)
+bool CanMoveCurrentNodeToTarget(
+	const FRelaxSolveContext& SolveContext,
+	const FRelaxNodeWindow& NodeWindow)
 {
 	const FRayRopeNodeTransition Transition{
-		&PrevNode,
-		&CurrentNode,
-		&NextNode,
-		CollapseTarget
+		&NodeWindow.PrevNode,
+		&NodeWindow.CurrentNode,
+		&NodeWindow.NextNode,
+		NodeWindow.CollapseTarget
 	};
 	return FRayRopeTransitionValidator::IsNodeTransitionClear(
-		TraceContext,
-		BuildRelaxTransitionValidationSettings(RelaxSettings),
+		SolveContext.TraceContext,
+		SolveContext.TransitionValidationSettings,
 		Transition);
 }
 
-bool TryCollapseRelaxNode(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeRelaxSettings& RelaxSettings,
-	const FRayRopeNode& PrevNode,
-	FRayRopeNode& CurrentNode,
-	const FRayRopeNode& NextNode,
-	const FVector& CollapseTarget)
+bool TryCollapseNode(
+	const FRelaxSolveContext& SolveContext,
+	FRelaxNodeWindow& NodeWindow)
 {
-	if (CurrentNode.WorldLocation.Equals(
-		CollapseTarget,
-		RelaxSettings.RelaxSolverTolerance))
+	if (NodeWindow.IsCurrentAtCollapseTarget(SolveContext))
 	{
 		return false;
 	}
 
-	if (!CanCollapseRelaxNodeToTarget(
-		TraceContext,
-		RelaxSettings,
-		PrevNode,
-		CurrentNode,
-		NextNode,
-		CollapseTarget))
+	if (!CanMoveCurrentNodeToTarget(SolveContext, NodeWindow))
 	{
 		return false;
 	}
 
-	CurrentNode.WorldLocation = CollapseTarget;
-	FRayRopeNodeSynchronizer::CacheAttachedActorOffset(CurrentNode);
+	NodeWindow.CurrentNode.WorldLocation = NodeWindow.CollapseTarget;
+	FRayRopeNodeSynchronizer::CacheAttachedActorOffset(NodeWindow.CurrentNode);
 	return true;
 }
 
-bool CanRemoveCollapsedRelaxNode(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeRelaxSettings& RelaxSettings,
-	const FRayRopeNode& PrevNode,
-	const FRayRopeNode& CurrentNode,
-	const FRayRopeNode& NextNode,
-	const FVector& CollapseTarget)
+bool CanRemoveCollapsedNode(
+	const FRelaxSolveContext& SolveContext,
+	const FRelaxNodeWindow& NodeWindow)
 {
-	return CurrentNode.WorldLocation.Equals(
-			CollapseTarget,
-			RelaxSettings.RelaxSolverTolerance) &&
-		IsShortcutSpanClear(TraceContext, PrevNode, NextNode);
+	return NodeWindow.IsCurrentAtCollapseTarget(SolveContext) &&
+		IsShortcutClear(SolveContext, NodeWindow);
 }
 
-bool CanRemoveRecoverableRelaxNode(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeRelaxSettings& RelaxSettings,
-	const FRayRopeNode& PrevNode,
-	const FRayRopeNode& CurrentNode,
-	const FRayRopeNode& NextNode,
-	const FVector& CollapseTarget)
+bool CanRemoveRecoverableNode(
+	const FRelaxSolveContext& SolveContext,
+	const FRelaxNodeWindow& NodeWindow)
 {
-	if (!IsShortcutSpanClear(TraceContext, PrevNode, NextNode))
+	if (!IsShortcutClear(SolveContext, NodeWindow))
 	{
 		return false;
 	}
 
-	if (CurrentNode.WorldLocation.Equals(
-		CollapseTarget,
-		RelaxSettings.RelaxSolverTolerance))
+	if (NodeWindow.IsCurrentAtCollapseTarget(SolveContext))
 	{
 		return true;
 	}
 
-	return CanCollapseRelaxNodeToTarget(
-		TraceContext,
-		RelaxSettings,
-		PrevNode,
-		CurrentNode,
-		NextNode,
-		CollapseTarget);
+	return CanMoveCurrentNodeToTarget(SolveContext, NodeWindow);
 }
 
-bool TryRemoveRelaxNode(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeRelaxSettings& RelaxSettings,
+bool TryRemoveNode(
+	const FRelaxSolveContext& SolveContext,
 	FRayRopeSegment& Segment,
 	int32 NodeIndex,
+	const FRelaxNodeWindow& NodeWindow,
 	bool bAllowRecoverableUncollapsedNode)
 {
-	if (!Segment.Nodes.IsValidIndex(NodeIndex - 1) ||
-		!Segment.Nodes.IsValidIndex(NodeIndex) ||
-		!Segment.Nodes.IsValidIndex(NodeIndex + 1))
-	{
-		return false;
-	}
-
-	const FRayRopeNode& PrevNode = Segment.Nodes[NodeIndex - 1];
-	const FRayRopeNode& CurrentNode = Segment.Nodes[NodeIndex];
-	const FRayRopeNode& NextNode = Segment.Nodes[NodeIndex + 1];
-	const FVector CollapseTarget = CalculateCollapseTargetOnShortcutLine(
-		PrevNode,
-		CurrentNode,
-		NextNode);
-
 	const bool bCanRemove = bAllowRecoverableUncollapsedNode
-		? CanRemoveRecoverableRelaxNode(
-			TraceContext,
-			RelaxSettings,
-			PrevNode,
-			CurrentNode,
-			NextNode,
-			CollapseTarget)
-		: CanRemoveCollapsedRelaxNode(
-			TraceContext,
-			RelaxSettings,
-			PrevNode,
-			CurrentNode,
-			NextNode,
-			CollapseTarget);
+		? CanRemoveRecoverableNode(SolveContext, NodeWindow)
+		: CanRemoveCollapsedNode(SolveContext, NodeWindow);
 	if (!bCanRemove)
 	{
 		return false;
 	}
 
-	FRayRopeNode RemovedNode = Segment.Nodes[NodeIndex];
 	Segment.Nodes.RemoveAt(NodeIndex, 1, EAllowShrinking::No);
-	if (ValidateSegmentSpans(TraceContext, Segment))
+	return true;
+}
+
+ERelaxNodeResult RelaxNode(
+	const FRelaxSolveContext& SolveContext,
+	FRayRopeSegment& Segment,
+	int32 NodeIndex)
+{
+	const FRayRopeNode& PrevNode = Segment.Nodes[NodeIndex - 1];
+	FRayRopeNode& CurrentNode = Segment.Nodes[NodeIndex];
+	const FRayRopeNode& NextNode = Segment.Nodes[NodeIndex + 1];
+	FRelaxNodeWindow NodeWindow(PrevNode, CurrentNode, NextNode);
+
+	if (!NodeWindow.IsCurrentPointFree(SolveContext))
 	{
-		return true;
+		return TryRemoveNode(
+			SolveContext,
+			Segment,
+			NodeIndex,
+			NodeWindow,
+			true)
+			? ERelaxNodeResult::Removed
+			: ERelaxNodeResult::Unchanged;
 	}
 
-	Segment.Nodes.Insert(MoveTemp(RemovedNode), NodeIndex);
-	return false;
+	if (NodeWindow.IsCurrentAtCollapseTarget(SolveContext))
+	{
+		return TryRemoveNode(
+			SolveContext,
+			Segment,
+			NodeIndex,
+			NodeWindow,
+			false)
+			? ERelaxNodeResult::Removed
+			: ERelaxNodeResult::Unchanged;
+	}
+
+	if (!TryCollapseNode(SolveContext, NodeWindow))
+	{
+		return ERelaxNodeResult::Unchanged;
+	}
+
+	return TryRemoveNode(
+		SolveContext,
+		Segment,
+		NodeIndex,
+		NodeWindow,
+		false)
+		? ERelaxNodeResult::Removed
+		: ERelaxNodeResult::Collapsed;
 }
 }
 
@@ -227,78 +234,18 @@ void FRayRopeRelaxSolver::RelaxSegment(
 	const FRayRopeTraceContext TraceContext = FRayRopeTrace::MakeTraceContext(
 		TraceSettings,
 		FCollisionQueryParams(SCENE_QUERY_STAT(RayRopeRelaxTrace)));
+	const FRelaxSolveContext SolveContext(TraceContext, RelaxSettings);
 
 	for (int32 NodeIndex = 1; NodeIndex < Segment.Nodes.Num() - 1;)
 	{
-		FRayRopeNode& CurrentNode = Segment.Nodes[NodeIndex];
-		if (CurrentNode.NodeType != ERayRopeNodeType::Redirect)
+		if (Segment.Nodes[NodeIndex].NodeType != ERayRopeNodeType::Redirect)
 		{
 			++NodeIndex;
 			continue;
 		}
 
-		const FRayRopeNode& PrevNode = Segment.Nodes[NodeIndex - 1];
-		const FRayRopeNode& NextNode = Segment.Nodes[NodeIndex + 1];
-		const bool bCurrentNodeFree = FRayRopeTrace::IsValidFreePoint(
-			TraceContext,
-			CurrentNode.WorldLocation);
-		if (!bCurrentNodeFree)
+		if (RelaxNode(SolveContext, Segment, NodeIndex) == ERelaxNodeResult::Removed)
 		{
-			if (TryRemoveRelaxNode(
-				TraceContext,
-				RelaxSettings,
-				Segment,
-				NodeIndex,
-				true))
-			{
-				continue;
-			}
-
-			++NodeIndex;
-			continue;
-		}
-
-		const FVector CollapseTarget = CalculateCollapseTargetOnShortcutLine(
-			PrevNode,
-			CurrentNode,
-			NextNode);
-		if (CurrentNode.WorldLocation.Equals(
-			CollapseTarget,
-			RelaxSettings.RelaxSolverTolerance))
-		{
-			if (TryRemoveRelaxNode(
-				TraceContext,
-				RelaxSettings,
-				Segment,
-				NodeIndex,
-				false))
-			{
-				continue;
-			}
-
-			++NodeIndex;
-			continue;
-		}
-
-		if (TryCollapseRelaxNode(
-			TraceContext,
-			RelaxSettings,
-			PrevNode,
-			CurrentNode,
-			NextNode,
-			CollapseTarget))
-		{
-			if (TryRemoveRelaxNode(
-				TraceContext,
-				RelaxSettings,
-				Segment,
-				NodeIndex,
-				false))
-			{
-				continue;
-			}
-
-			++NodeIndex;
 			continue;
 		}
 

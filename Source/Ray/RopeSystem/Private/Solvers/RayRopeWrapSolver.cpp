@@ -2,18 +2,12 @@
 
 void FRayRopeWrapSolver::WrapSegment(
 	const FRayRopeTraceSettings& TraceSettings,
-	const FRayRopeWrapSettings& WrapSettings,
+	const FRayRopeNodeBuildSettings& WrapSettings,
 	FRayRopeSegment& Segment,
 	TConstArrayView<FRayRopeNode> ReferenceNodes)
 {
-	ensureMsgf(
-		Segment.Nodes.Num() == ReferenceNodes.Num(),
-		TEXT("WrapSegment expects current and reference segments with matching node counts."));
-
-	const int32 ComparableNodeCount =
-		FMath::Min(Segment.Nodes.Num(), ReferenceNodes.Num());
-
-	if (ComparableNodeCount < 2)
+	const int32 NodeCount = Segment.Nodes.Num();
+	if (NodeCount != ReferenceNodes.Num() || NodeCount < 2)
 	{
 		return;
 	}
@@ -23,9 +17,9 @@ void FRayRopeWrapSolver::WrapSegment(
 		FCollisionQueryParams(SCENE_QUERY_STAT(RayRopeTrace)));
 
 	FRayRopePendingNodeInsertionBuffer PendingInsertions;
-	PendingInsertions.Reserve((ComparableNodeCount - 1) * 2);
+	PendingInsertions.Reserve((NodeCount - 1) * 2);
 
-	for (int32 NodeIndex = 0; NodeIndex < ComparableNodeCount - 1; ++NodeIndex)
+	for (int32 NodeIndex = 0; NodeIndex < NodeCount - 1; ++NodeIndex)
 	{
 		FRayRopeBuiltNodeBuffer NewNodes;
 		if (!FRayRopeNodeBuilder::BuildNodes(
@@ -40,7 +34,7 @@ void FRayRopeWrapSolver::WrapSegment(
 		}
 
 		const int32 InsertIndex = NodeIndex + 1;
-		if (!FRayRopeNodeBuilder::CanInsertNodesInSegment(
+		if (!FRayRopeNodeInsertionQueue::CanInsertNodesInSegment(
 			WrapSettings,
 			InsertIndex,
 			Segment,
@@ -50,11 +44,11 @@ void FRayRopeWrapSolver::WrapSegment(
 			continue;
 		}
 
-		FRayRopeNodeBuilder::AppendPendingInsertions(
+		FRayRopeNodeInsertionQueue::AppendPendingInsertions(
 			InsertIndex,
 			NewNodes,
 			PendingInsertions);
 	}
 
-	FRayRopeNodeBuilder::ApplyPendingInsertions(Segment, PendingInsertions);
+	FRayRopeNodeInsertionQueue::ApplyPendingInsertions(Segment, PendingInsertions);
 }

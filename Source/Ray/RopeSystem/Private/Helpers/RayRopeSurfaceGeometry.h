@@ -16,6 +16,10 @@ struct FRayRopeSurfaceGeometry
 		const FHitResult& FrontSurfaceHit,
 		const FHitResult* BackSurfaceHit);
 
+	static FVector CalculateSurfaceOffsetDirection(
+		const FHitResult& FrontSurfaceHit,
+		const FHitResult* BackSurfaceHit);
+
 private:
 	static FVector CalculateProjectedPointOnHitPlane(
 		const FRayRopeSpan& ValidSpan,

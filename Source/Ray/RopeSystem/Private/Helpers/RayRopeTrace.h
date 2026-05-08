@@ -51,7 +51,6 @@ struct FRayRopeTraceContext
 {
 	UWorld* World = nullptr;
 	ECollisionChannel TraceChannel = ECC_Visibility;
-	bool bTraceComplex = false;
 	FCollisionQueryParams QueryParams;
 };
 

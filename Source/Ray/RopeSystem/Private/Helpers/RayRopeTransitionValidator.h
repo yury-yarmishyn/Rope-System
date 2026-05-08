@@ -27,15 +27,4 @@ struct FRayRopeTransitionValidator
 		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeTransitionValidationSettings& Settings,
 		const FRayRopeNodeTransition& Transition);
-
-	static bool AreResultSpansClear(
-		const FRayRopeTraceContext& TraceContext,
-		const FRayRopeNode& PrevNode,
-		const FRayRopeNode& CandidateNode,
-		const FRayRopeNode& NextNode);
-
-	static bool IsContinuousSpanFanClear(
-		const FRayRopeTraceContext& TraceContext,
-		const FRayRopeTransitionValidationSettings& Settings,
-		const FRayRopeNodeTransition& Transition);
 };

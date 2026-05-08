@@ -3,7 +3,7 @@
 #include "Helpers/RayRopeDebug.h"
 #include "Helpers/RayRopeNodeSynchronizer.h"
 #include "Helpers/RayRopeSegmentTopology.h"
-#include "Solvers/RayRopeMoveSolver.h"
+#include "Solvers/MoveSolver/RayRopeMoveSolver.h"
 #include "Solvers/RayRopePhysicsSolver.h"
 #include "Solvers/RayRopeRelaxSolver.h"
 #include "Solvers/RayRopeWrapSolver.h"
@@ -80,20 +80,19 @@ FRayRopeNodeBuildSettings MakeNodeBuildSettings(const URayRopeComponent& Compone
 	return Settings;
 }
 
-FRayRopeWrapSettings MakeWrapSettings(const URayRopeComponent& Component)
-{
-	FRayRopeWrapSettings WrapSettings;
-	static_cast<FRayRopeNodeBuildSettings&>(WrapSettings) = MakeNodeBuildSettings(Component);
-	return WrapSettings;
-}
-
-FRayRopeMoveSettings MakeMoveSettings(const URayRopeComponent& Component)
+FRayRopeMoveSettings MakeMoveSettings(
+	const URayRopeComponent& Component,
+	const FRayRopeNodeBuildSettings& NodeBuildSettings)
 {
 	FRayRopeMoveSettings MoveSettings;
-	MoveSettings.NodeBuildSettings = MakeNodeBuildSettings(Component);
+	MoveSettings.NodeBuildSettings = NodeBuildSettings;
 	MoveSettings.MoveSolverTolerance = Component.MoveSolverTolerance;
 	MoveSettings.PlaneParallelTolerance = Component.MovePlaneParallelTolerance;
 	MoveSettings.EffectivePointSearchTolerance = Component.MoveEffectivePointSearchTolerance;
+	MoveSettings.MinMoveDistance = Component.MoveMinMoveDistance;
+	MoveSettings.MinNodeSeparation = Component.MoveMinNodeSeparation;
+	MoveSettings.MinLengthImprovement = Component.MoveMinLengthImprovement;
+	MoveSettings.MaxMoveDistancePerIteration = Component.MoveMaxDistancePerIteration;
 	MoveSettings.SurfaceOffset = Component.WrapSurfaceOffset;
 	MoveSettings.MaxMoveIterations = Component.MaxMoveIterations;
 	MoveSettings.MaxEffectivePointSearchIterations = Component.MaxEffectivePointSearchIterations;
@@ -120,7 +119,7 @@ void SolveSegmentWithSettings(
 	FRayRopeSegment& Segment,
 	int32 SegmentIndex,
 	const FRayRopeTraceSettings& TraceSettings,
-	const FRayRopeWrapSettings& WrapSettings,
+	const FRayRopeNodeBuildSettings& NodeBuildSettings,
 	const FRayRopeMoveSettings& MoveSettings,
 	const FRayRopeRelaxSettings& RelaxSettings,
 	TArray<FRayRopeNode>& ReferenceNodes,
@@ -131,7 +130,7 @@ void SolveSegmentWithSettings(
 	ReferenceNodes.Append(Segment.Nodes);
 
 	FRayRopeNodeSynchronizer::SyncSegmentNodes(Segment);
-	FRayRopeWrapSolver::WrapSegment(TraceSettings, WrapSettings, Segment, ReferenceNodes);
+	FRayRopeWrapSolver::WrapSegment(TraceSettings, NodeBuildSettings, Segment, ReferenceNodes);
 
 	ReferenceNodes.Reset(Segment.Nodes.Num());
 	ReferenceNodes.Append(Segment.Nodes);
@@ -141,7 +140,7 @@ void SolveSegmentWithSettings(
 		ReferenceNodes.Reset(Segment.Nodes.Num());
 		ReferenceNodes.Append(Segment.Nodes);
 	}
-	FRayRopeWrapSolver::WrapSegment(TraceSettings, WrapSettings, Segment, ReferenceNodes);
+	FRayRopeWrapSolver::WrapSegment(TraceSettings, NodeBuildSettings, Segment, ReferenceNodes);
 
 	FRayRopeRelaxSolver::RelaxSegment(TraceSettings, RelaxSettings, Segment);
 
@@ -384,8 +383,8 @@ void URayRopeComponent::SolveRope()
 	}
 
 	const FRayRopeTraceSettings TraceSettings = MakeTraceSettings(*this);
-	const FRayRopeWrapSettings WrapSettings = MakeWrapSettings(*this);
-	const FRayRopeMoveSettings MoveSettings = MakeMoveSettings(*this);
+	const FRayRopeNodeBuildSettings NodeBuildSettings = MakeNodeBuildSettings(*this);
+	const FRayRopeMoveSettings MoveSettings = MakeMoveSettings(*this, NodeBuildSettings);
 	const FRayRopeRelaxSettings RelaxSettings = MakeRelaxSettings(*this);
 	const bool bLogNodeCountChanges = IsDebugLogEnabled();
 
@@ -401,7 +400,7 @@ void URayRopeComponent::SolveRope()
 			Segment,
 			SegmentIndex,
 			TraceSettings,
-			WrapSettings,
+			NodeBuildSettings,
 			MoveSettings,
 			RelaxSettings,
 			ReferenceNodesScratch,
@@ -414,13 +413,14 @@ void URayRopeComponent::SolveRope()
 
 void URayRopeComponent::SolveSegment(FRayRopeSegment& Segment, int32 SegmentIndex) const
 {
+	const FRayRopeNodeBuildSettings NodeBuildSettings = MakeNodeBuildSettings(*this);
 	TArray<FRayRopeNode> ReferenceNodes;
 	SolveSegmentWithSettings(
 		Segment,
 		SegmentIndex,
 		MakeTraceSettings(*this),
-		MakeWrapSettings(*this),
-		MakeMoveSettings(*this),
+		NodeBuildSettings,
+		MakeMoveSettings(*this, NodeBuildSettings),
 		MakeRelaxSettings(*this),
 		ReferenceNodes,
 		IsDebugLogEnabled());

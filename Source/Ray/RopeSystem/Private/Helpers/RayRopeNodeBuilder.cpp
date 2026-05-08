@@ -24,8 +24,50 @@ struct FRayRopeRedirectBuildInput
 	}
 };
 
+struct FRayRopeBoundarySearchBounds
+{
+	FRayRopeNode ClearStartNode;
+	FRayRopeNode ClearEndNode;
+	FRayRopeNode BlockedStartNode;
+	FRayRopeNode BlockedEndNode;
+
+	bool IsResolved(float ToleranceSquared) const
+	{
+		return FVector::DistSquared(ClearStartNode.WorldLocation, BlockedStartNode.WorldLocation) <=
+				ToleranceSquared &&
+			FVector::DistSquared(ClearEndNode.WorldLocation, BlockedEndNode.WorldLocation) <=
+				ToleranceSquared;
+	}
+
+	void BuildMidSpan(FRayRopeNode& OutStartNode, FRayRopeNode& OutEndNode) const
+	{
+		OutStartNode = ClearStartNode;
+		OutEndNode = ClearEndNode;
+		OutStartNode.WorldLocation =
+			(ClearStartNode.WorldLocation + BlockedStartNode.WorldLocation) * 0.5f;
+		OutEndNode.WorldLocation =
+			(ClearEndNode.WorldLocation + BlockedEndNode.WorldLocation) * 0.5f;
+	}
+
+	void MarkBlocked(const FRayRopeNode& StartNode, const FRayRopeNode& EndNode)
+	{
+		BlockedStartNode = StartNode;
+		BlockedEndNode = EndNode;
+	}
+
+	void MarkClear(const FRayRopeNode& StartNode, const FRayRopeNode& EndNode)
+	{
+		ClearStartNode = StartNode;
+		ClearEndNode = EndNode;
+	}
+
+	FRayRopeSpan GetBlockedSpan() const
+	{
+		return FRayRopeSpan{&BlockedStartNode, &BlockedEndNode};
+	}
+};
+
 bool TryBuildNodeSpanPair(
-	const FRayRopeTraceContext& TraceContext,
 	int32 NodeIndex,
 	TConstArrayView<FRayRopeNode> CurrentNodes,
 	TConstArrayView<FRayRopeNode> ReferenceNodes,
@@ -75,11 +117,6 @@ bool TryFindBoundaryHit(
 	const FRayRopeSpan& BlockedSpan,
 	FHitResult& SurfaceHit);
 
-FVector CalculateRedirectOffset(
-	const FRayRopeNodeBuildSettings& Settings,
-	const FHitResult& FrontSurfaceHit,
-	const FHitResult* BackSurfaceHit = nullptr);
-
 AActor* ResolveRedirectAttachedActor(
 	const FHitResult& FrontSurfaceHit,
 	const FHitResult* BackSurfaceHit);
@@ -98,6 +135,24 @@ void AppendRedirectNodes(
 	const FRayRopeRedirectBuildInput& RedirectInput,
 	FRayRopeBuiltNodeBuffer& OutNodes);
 
+bool IsMovableRedirectComponent(const UPrimitiveComponent* Component)
+{
+	return IsValid(Component) &&
+		(Component->Mobility == EComponentMobility::Movable ||
+			Component->IsSimulatingPhysics());
+}
+
+bool IsMovableRedirectActor(const AActor* Actor)
+{
+	if (!IsValid(Actor))
+	{
+		return false;
+	}
+
+	const USceneComponent* RootComponent = Actor->GetRootComponent();
+	return IsValid(RootComponent) && RootComponent->Mobility == EComponentMobility::Movable;
+}
+
 bool CanUseHitForRedirectNode(
 	const FHitResult& SurfaceHit,
 	bool bAllowWrapOnMovableObjects)
@@ -113,13 +168,9 @@ bool CanUseHitForRedirectNode(
 	}
 
 	const UPrimitiveComponent* HitComponent = SurfaceHit.GetComponent();
-	if (IsValid(HitComponent))
+	if (IsMovableRedirectComponent(HitComponent))
 	{
-		if (HitComponent->Mobility == EComponentMobility::Movable ||
-			HitComponent->IsSimulatingPhysics())
-		{
-			return false;
-		}
+		return false;
 	}
 
 	const AActor* HitActor = SurfaceHit.GetActor();
@@ -128,8 +179,7 @@ bool CanUseHitForRedirectNode(
 		return HitComponent != nullptr;
 	}
 
-	const USceneComponent* RootComponent = HitActor->GetRootComponent();
-	return !IsValid(RootComponent) || RootComponent->Mobility != EComponentMobility::Movable;
+	return !IsMovableRedirectActor(HitActor);
 }
 
 bool IsInvalidNodeBuilderEndpoint(
@@ -163,7 +213,6 @@ bool FRayRopeNodeBuilder::BuildNodes(
 	FRayRopeSpan CurrentSpan;
 	FRayRopeSpan ReferenceSpan;
 	if (!TryBuildNodeSpanPair(
-		TraceContext,
 		NodeIndex,
 		CurrentNodes,
 		ReferenceNodes,
@@ -216,166 +265,17 @@ bool FRayRopeNodeBuilder::BuildNodesForSpanTransition(
 		OutNodes);
 }
 
-bool FRayRopeNodeBuilder::CanInsertNodes(
-	const FRayRopeNodeBuildSettings& Settings,
-	const FRayRopeNode& PrevNode,
-	const FRayRopeNode& NextNode,
-	int32 InsertIndex,
-	TConstArrayView<FRayRopeNode> Candidates,
-	const FRayRopePendingNodeInsertionBuffer& PendingInsertions)
-{
-	if (InsertIndex < 0 || Candidates.Num() == 0)
-	{
-		return false;
-	}
-
-	for (int32 CandidateIndex = 0; CandidateIndex < Candidates.Num(); ++CandidateIndex)
-	{
-		const FRayRopeNode& Candidate = Candidates[CandidateIndex];
-		if (AreEquivalentNodes(Settings, Candidate, PrevNode) ||
-			AreEquivalentNodes(Settings, Candidate, NextNode))
-		{
-			return false;
-		}
-
-		for (int32 OtherCandidateIndex = CandidateIndex + 1;
-			OtherCandidateIndex < Candidates.Num();
-			++OtherCandidateIndex)
-		{
-			if (AreEquivalentNodes(Settings, Candidate, Candidates[OtherCandidateIndex]))
-			{
-				return false;
-			}
-		}
-
-		for (const TPair<int32, FRayRopeNode>& PendingInsertion : PendingInsertions)
-		{
-			const bool bNearbyInsertion = FMath::Abs(PendingInsertion.Key - InsertIndex) <= 1;
-			if (bNearbyInsertion &&
-				AreEquivalentNodes(Settings, PendingInsertion.Value, Candidate))
-			{
-				return false;
-			}
-		}
-	}
-
-	return true;
-}
-
-bool FRayRopeNodeBuilder::CanInsertNodesInSegment(
-	const FRayRopeNodeBuildSettings& Settings,
-	int32 InsertIndex,
-	const FRayRopeSegment& Segment,
-	TConstArrayView<FRayRopeNode> Candidates,
-	const FRayRopePendingNodeInsertionBuffer& PendingInsertions)
-{
-	if (!Segment.Nodes.IsValidIndex(InsertIndex - 1) ||
-		!Segment.Nodes.IsValidIndex(InsertIndex))
-	{
-		return false;
-	}
-
-	return CanInsertNodes(
-		Settings,
-		Segment.Nodes[InsertIndex - 1],
-		Segment.Nodes[InsertIndex],
-		InsertIndex,
-		Candidates,
-		PendingInsertions);
-}
-
-void FRayRopeNodeBuilder::AppendPendingInsertions(
-	int32 InsertIndex,
-	FRayRopeBuiltNodeBuffer& Nodes,
-	FRayRopePendingNodeInsertionBuffer& PendingInsertions)
-{
-	for (FRayRopeNode& Node : Nodes)
-	{
-		PendingInsertions.Emplace(InsertIndex, MoveTemp(Node));
-	}
-}
-
-void FRayRopeNodeBuilder::ApplyPendingInsertions(
-	FRayRopeSegment& Segment,
-	FRayRopePendingNodeInsertionBuffer& PendingInsertions)
-{
-	PendingInsertions.StableSort(
-		[](const TPair<int32, FRayRopeNode>& Left, const TPair<int32, FRayRopeNode>& Right)
-		{
-			return Left.Key < Right.Key;
-		});
-
-	if (PendingInsertions.Num() > 0)
-	{
-		Segment.Nodes.Reserve(Segment.Nodes.Num() + PendingInsertions.Num());
-	}
-
-	for (int32 PendingIndex = PendingInsertions.Num() - 1; PendingIndex >= 0; --PendingIndex)
-	{
-		TPair<int32, FRayRopeNode>& PendingInsertion = PendingInsertions[PendingIndex];
-		Segment.Nodes.Insert(MoveTemp(PendingInsertion.Value), PendingInsertion.Key);
-	}
-
-	PendingInsertions.Reset();
-}
-
-bool FRayRopeNodeBuilder::AreEquivalentNodes(
-	const FRayRopeNodeBuildSettings& Settings,
-	const FRayRopeNode& FirstNode,
-	const FRayRopeNode& SecondNode)
-{
-	if (FirstNode.NodeType != SecondNode.NodeType)
-	{
-		return false;
-	}
-
-	if (FirstNode.NodeType == ERayRopeNodeType::Anchor)
-	{
-		return FirstNode.AttachedActor == SecondNode.AttachedActor;
-	}
-
-	if (FirstNode.NodeType != ERayRopeNodeType::Redirect)
-	{
-		return false;
-	}
-
-	const bool bBothAttachedToSameValidActor =
-		FirstNode.AttachedActor == SecondNode.AttachedActor &&
-		IsValid(FirstNode.AttachedActor) &&
-		FirstNode.bUseAttachedActorOffset &&
-		SecondNode.bUseAttachedActorOffset;
-
-	if (bBothAttachedToSameValidActor)
-	{
-		return FirstNode.AttachedActorOffset.Equals(
-			SecondNode.AttachedActorOffset,
-			Settings.WrapSolverTolerance
-		);
-	}
-
-	return FirstNode.WorldLocation.Equals(
-		SecondNode.WorldLocation,
-		Settings.WrapSolverTolerance);
-}
-
 namespace
 {
 bool TryBuildNodeSpanPair(
-	const FRayRopeTraceContext& TraceContext,
 	int32 NodeIndex,
 	TConstArrayView<FRayRopeNode> CurrentNodes,
 	TConstArrayView<FRayRopeNode> ReferenceNodes,
 	FRayRopeSpan& OutCurrentSpan,
 	FRayRopeSpan& OutReferenceSpan)
 {
-	if (!FRayRopeSegmentTopology::TryGetNodeSpan(CurrentNodes, NodeIndex, OutCurrentSpan) ||
-		!FRayRopeSegmentTopology::TryGetNodeSpan(ReferenceNodes, NodeIndex, OutReferenceSpan))
-	{
-		return false;
-	}
-
-	return !HasInvalidNodeBuilderEndpoint(TraceContext, OutCurrentSpan) &&
-		!HasInvalidNodeBuilderEndpoint(TraceContext, OutReferenceSpan);
+	return FRayRopeSegmentTopology::TryGetNodeSpan(CurrentNodes, NodeIndex, OutCurrentSpan) &&
+		FRayRopeSegmentTopology::TryGetNodeSpan(ReferenceNodes, NodeIndex, OutReferenceSpan);
 }
 
 bool TryBuildAnchorNode(
@@ -432,11 +332,6 @@ bool TryBuildRedirectInput(
 	FRayRopeRedirectBuildInput& OutInput)
 {
 	OutInput = FRayRopeRedirectBuildInput();
-
-	if (!CurrentSpan.IsValid() || !ReferenceSpan.IsValid())
-	{
-		return false;
-	}
 
 	const FRayRopeSpan ReversedCurrentSpan{CurrentSpan.EndNode, CurrentSpan.StartNode};
 	if (FRayRopeTrace::HasBlockingSpanHit(TraceContext, ReferenceSpan))
@@ -538,55 +433,42 @@ bool TryFindBoundaryHit(
 		return false;
 	}
 
-	FRayRopeNode LastClearStartNode = *ClearSpan.StartNode;
-	FRayRopeNode LastClearEndNode = *ClearSpan.EndNode;
-	FRayRopeNode LastBlockedStartNode = *BlockedSpan.StartNode;
-	FRayRopeNode LastBlockedEndNode = *BlockedSpan.EndNode;
-	FRayRopeSpan LastClearSpan{&LastClearStartNode, &LastClearEndNode};
-	FRayRopeSpan LastBlockedSpan{&LastBlockedStartNode, &LastBlockedEndNode};
+	FRayRopeBoundarySearchBounds Bounds{
+		*ClearSpan.StartNode,
+		*ClearSpan.EndNode,
+		*BlockedSpan.StartNode,
+		*BlockedSpan.EndNode
+	};
 	const float WrapSolverToleranceSquared = FMath::Square(Settings.WrapSolverTolerance);
 
 	const int32 MaxSearchIterations = FMath::Max(0, Settings.MaxWrapBinarySearchIterations);
 	for (int32 Iteration = 0; Iteration < MaxSearchIterations; ++Iteration)
 	{
-		const bool bStartCloseEnough =
-			FVector::DistSquared(LastClearSpan.GetStartLocation(), LastBlockedSpan.GetStartLocation()) <=
-			WrapSolverToleranceSquared;
-
-		const bool bEndCloseEnough =
-			FVector::DistSquared(LastClearSpan.GetEndLocation(), LastBlockedSpan.GetEndLocation()) <=
-			WrapSolverToleranceSquared;
-
-		if (bStartCloseEnough && bEndCloseEnough)
+		if (Bounds.IsResolved(WrapSolverToleranceSquared))
 		{
 			break;
 		}
 
-		FRayRopeNode MidStartNode = LastClearStartNode;
-		FRayRopeNode MidEndNode = LastClearEndNode;
-		MidStartNode.WorldLocation =
-			(LastClearSpan.GetStartLocation() + LastBlockedSpan.GetStartLocation()) * 0.5f;
-		MidEndNode.WorldLocation =
-			(LastClearSpan.GetEndLocation() + LastBlockedSpan.GetEndLocation()) * 0.5f;
+		FRayRopeNode MidStartNode;
+		FRayRopeNode MidEndNode;
+		Bounds.BuildMidSpan(MidStartNode, MidEndNode);
 		const FRayRopeSpan MidSpan{&MidStartNode, &MidEndNode};
 		if (HasInvalidNodeBuilderEndpoint(TraceContext, MidSpan))
 		{
-			LastBlockedStartNode = MidStartNode;
-			LastBlockedEndNode = MidEndNode;
+			Bounds.MarkBlocked(MidStartNode, MidEndNode);
 			continue;
 		}
 
 		if (FRayRopeTrace::HasBlockingSpanHit(TraceContext, MidSpan))
 		{
-			LastBlockedStartNode = MidStartNode;
-			LastBlockedEndNode = MidEndNode;
+			Bounds.MarkBlocked(MidStartNode, MidEndNode);
 			continue;
 		}
 
-		LastClearStartNode = MidStartNode;
-		LastClearEndNode = MidEndNode;
+		Bounds.MarkClear(MidStartNode, MidEndNode);
 	}
 
+	const FRayRopeSpan LastBlockedSpan = Bounds.GetBlockedSpan();
 	if (HasInvalidNodeBuilderEndpoint(TraceContext, LastBlockedSpan))
 	{
 		SurfaceHit = FHitResult();
@@ -594,25 +476,6 @@ bool TryFindBoundaryHit(
 	}
 
 	return FRayRopeTrace::TryTraceSpan(TraceContext, LastBlockedSpan, SurfaceHit);
-}
-
-FVector CalculateRedirectOffset(
-	const FRayRopeNodeBuildSettings& Settings,
-	const FHitResult& FrontSurfaceHit,
-	const FHitResult* BackSurfaceHit)
-{
-	if (BackSurfaceHit == nullptr)
-	{
-		return FrontSurfaceHit.ImpactNormal.GetSafeNormal() * Settings.WrapSurfaceOffset;
-	}
-
-	FVector OffsetDirection = FrontSurfaceHit.ImpactNormal + BackSurfaceHit->ImpactNormal;
-	if (OffsetDirection.IsNearlyZero())
-	{
-		OffsetDirection = FrontSurfaceHit.ImpactNormal;
-	}
-
-	return OffsetDirection.GetSafeNormal() * Settings.WrapSurfaceOffset;
 }
 
 AActor* ResolveRedirectAttachedActor(
@@ -652,10 +515,8 @@ bool TryCreateRedirectNode(
 		FrontSurfaceHit,
 		BackSurfaceHit);
 	const FVector RedirectOffset =
-		CalculateRedirectOffset(
-			Settings,
-			FrontSurfaceHit,
-			BackSurfaceHit);
+		FRayRopeSurfaceGeometry::CalculateSurfaceOffsetDirection(FrontSurfaceHit, BackSurfaceHit) *
+		Settings.WrapSurfaceOffset;
 	RedirectNode.WorldLocation = RedirectLocation + RedirectOffset;
 	if (!FRayRopeTrace::IsValidFreePoint(TraceContext, RedirectNode.WorldLocation))
 	{

@@ -81,13 +81,25 @@ public:
 	int32 MaxRelaxCollapseIterations = 8;
 
 	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
-	float MoveSolverTolerance = 1.f;
+	float MoveSolverTolerance = 0.05f;
 
 	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0.0", ClampMax = "1.0", UIMin = "0.0", UIMax = "1.0"))
 	float MovePlaneParallelTolerance = 0.01f;
 
 	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
-	float MoveEffectivePointSearchTolerance = 1.f;
+	float MoveEffectivePointSearchTolerance = 0.05f;
+
+	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float MoveMinMoveDistance = 0.05f;
+
+	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float MoveMinNodeSeparation = 0.05f;
+
+	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float MoveMinLengthImprovement = 0.01f;
+
+	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float MoveMaxDistancePerIteration = 2.f;
 
 	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver", meta = (ClampMin = "0", UIMin = "0"))
 	int32 MaxMoveIterations = 4;

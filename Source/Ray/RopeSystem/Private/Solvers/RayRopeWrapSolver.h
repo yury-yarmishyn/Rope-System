@@ -2,15 +2,11 @@
 
 #include "Helpers/RayRopeNodeBuilder.h"
 
-struct FRayRopeWrapSettings : FRayRopeNodeBuildSettings
-{
-};
-
 struct FRayRopeWrapSolver
 {
 	static void WrapSegment(
 		const FRayRopeTraceSettings& TraceSettings,
-		const FRayRopeWrapSettings& WrapSettings,
+		const FRayRopeNodeBuildSettings& WrapSettings,
 		FRayRopeSegment& Segment,
 		TConstArrayView<FRayRopeNode> ReferenceNodes);
 };

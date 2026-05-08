@@ -25,6 +25,22 @@ FRayRopeNode CreateTransitionCandidateNode(
 	return CandidateNode;
 }
 
+bool AreResultSpansClear(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeNode& PrevNode,
+	const FRayRopeNode& CandidateNode,
+	const FRayRopeNode& NextNode)
+{
+	const FRayRopeSpan PrevCandidateSpan{&PrevNode, &CandidateNode};
+	if (FRayRopeTrace::HasBlockingSpanHit(TraceContext, PrevCandidateSpan))
+	{
+		return false;
+	}
+
+	const FRayRopeSpan CandidateNextSpan{&CandidateNode, &NextNode};
+	return !FRayRopeTrace::HasBlockingSpanHit(TraceContext, CandidateNextSpan);
+}
+
 bool IsTransitionSampleClear(
 	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeNodeTransition& Transition,
@@ -42,61 +58,18 @@ bool IsTransitionSampleClear(
 	const FRayRopeNode SampleNode = CreateTransitionCandidateNode(
 		*Transition.CurrentNode,
 		SampleLocation);
-	return FRayRopeTransitionValidator::AreResultSpansClear(
+	return AreResultSpansClear(
 		TraceContext,
 		*Transition.PrevNode,
 		SampleNode,
 		*Transition.NextNode);
 }
-}
 
-bool FRayRopeTransitionValidator::IsNodeTransitionClear(
+bool IsTransitionNodePathClearUnchecked(
 	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeTransitionValidationSettings& Settings,
 	const FRayRopeNodeTransition& Transition)
 {
-	if (!IsValidTransition(Transition) ||
-		!FRayRopeTrace::IsValidFreePoint(TraceContext, Transition.TargetLocation))
-	{
-		return false;
-	}
-
-	if (!FRayRopeTransitionValidator::IsTransitionNodePathClear(
-		TraceContext,
-		Settings,
-		Transition))
-	{
-		return false;
-	}
-
-	const FRayRopeNode CandidateNode = CreateTransitionCandidateNode(
-		*Transition.CurrentNode,
-		Transition.TargetLocation);
-	if (!AreResultSpansClear(
-		TraceContext,
-		*Transition.PrevNode,
-		CandidateNode,
-		*Transition.NextNode))
-	{
-		return false;
-	}
-
-	return IsContinuousSpanFanClear(
-		TraceContext,
-		Settings,
-		Transition);
-}
-
-bool FRayRopeTransitionValidator::IsTransitionNodePathClear(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeTransitionValidationSettings& Settings,
-	const FRayRopeNodeTransition& Transition)
-{
-	if (!IsValidTransition(Transition))
-	{
-		return false;
-	}
-
 	if (Transition.CurrentNode->WorldLocation.Equals(
 		Transition.TargetLocation,
 		Settings.SolverTolerance))
@@ -115,32 +88,11 @@ bool FRayRopeTransitionValidator::IsTransitionNodePathClear(
 		Transition.TargetLocation);
 }
 
-bool FRayRopeTransitionValidator::AreResultSpansClear(
-	const FRayRopeTraceContext& TraceContext,
-	const FRayRopeNode& PrevNode,
-	const FRayRopeNode& CandidateNode,
-	const FRayRopeNode& NextNode)
-{
-	const FRayRopeSpan PrevCandidateSpan{&PrevNode, &CandidateNode};
-	if (FRayRopeTrace::HasBlockingSpanHit(TraceContext, PrevCandidateSpan))
-	{
-		return false;
-	}
-
-	const FRayRopeSpan CandidateNextSpan{&CandidateNode, &NextNode};
-	return !FRayRopeTrace::HasBlockingSpanHit(TraceContext, CandidateNextSpan);
-}
-
-bool FRayRopeTransitionValidator::IsContinuousSpanFanClear(
+bool IsContinuousSpanFanClearUnchecked(
 	const FRayRopeTraceContext& TraceContext,
 	const FRayRopeTransitionValidationSettings& Settings,
 	const FRayRopeNodeTransition& Transition)
 {
-	if (!IsValidTransition(Transition))
-	{
-		return false;
-	}
-
 	const int32 MaxIterations = FMath::Max(0, Settings.MaxTransitionValidationIterations);
 	if (MaxIterations == 0 ||
 		Transition.CurrentNode->WorldLocation.Equals(
@@ -180,4 +132,58 @@ bool FRayRopeTransitionValidator::IsContinuousSpanFanClear(
 	}
 
 	return true;
+}
+}
+
+bool FRayRopeTransitionValidator::IsNodeTransitionClear(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeTransitionValidationSettings& Settings,
+	const FRayRopeNodeTransition& Transition)
+{
+	if (!IsValidTransition(Transition) ||
+		!FRayRopeTrace::IsValidFreePoint(TraceContext, Transition.TargetLocation))
+	{
+		return false;
+	}
+
+	if (!IsTransitionNodePathClearUnchecked(
+		TraceContext,
+		Settings,
+		Transition))
+	{
+		return false;
+	}
+
+	const FRayRopeNode CandidateNode = CreateTransitionCandidateNode(
+		*Transition.CurrentNode,
+		Transition.TargetLocation);
+	if (!AreResultSpansClear(
+		TraceContext,
+		*Transition.PrevNode,
+		CandidateNode,
+		*Transition.NextNode))
+	{
+		return false;
+	}
+
+	return IsContinuousSpanFanClearUnchecked(
+		TraceContext,
+		Settings,
+		Transition);
+}
+
+bool FRayRopeTransitionValidator::IsTransitionNodePathClear(
+	const FRayRopeTraceContext& TraceContext,
+	const FRayRopeTransitionValidationSettings& Settings,
+	const FRayRopeNodeTransition& Transition)
+{
+	if (!IsValidTransition(Transition))
+	{
+		return false;
+	}
+
+	return IsTransitionNodePathClearUnchecked(
+		TraceContext,
+		Settings,
+		Transition);
 }

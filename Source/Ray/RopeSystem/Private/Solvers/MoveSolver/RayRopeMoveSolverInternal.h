@@ -2,7 +2,8 @@
 
 #include "RayRopeMoveSolver.h"
 
-#include "Helpers/RayRopeTransitionValidator.h"
+#include "Nodes/RayRopeNodeFactory.h"
+#include "Validation/RayRopeTransitionValidator.h"
 
 namespace RayRopeMoveSolverPrivate
 {
@@ -112,10 +113,6 @@ bool IsMoveImprovementSignificant(
 	const FMoveSolveContext& SolveContext,
 	const FMoveNodeWindow& NodeWindow,
 	const FVector& CandidatePoint);
-
-FRayRopeNode CreateMoveCandidateNode(
-	const FRayRopeNode& SourceNode,
-	const FVector& WorldLocation);
 
 FVector ClampMoveTarget(
 	const FRayRopeMoveSettings& MoveSettings,

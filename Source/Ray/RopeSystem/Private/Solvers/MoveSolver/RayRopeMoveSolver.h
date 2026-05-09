@@ -1,6 +1,6 @@
 #pragma once
 
-#include "Helpers/RayRopeNodeBuilder.h"
+#include "Nodes/RayRopeNodeBuilder.h"
 
 struct FRayRopeMoveSettings
 {

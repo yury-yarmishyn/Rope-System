@@ -1,7 +1,7 @@
 #include "RayRopeMoveSolver.h"
 
+#include "Nodes/RayRopeNodeSynchronizer.h"
 #include "RayRopeMoveSolverInternal.h"
-#include "Helpers/RayRopeNodeSynchronizer.h"
 
 using namespace RayRopeMoveSolverPrivate;
 
@@ -55,7 +55,9 @@ void FRayRopeMoveSolver::MoveSegment(
 				continue;
 			}
 
-			FRayRopeNode MovedNode = CreateMoveCandidateNode(CurrentNode, MoveResult.EffectivePoint);
+			FRayRopeNode MovedNode = FRayRopeNodeFactory::CreateNodeAtLocation(
+				CurrentNode,
+				MoveResult.EffectivePoint);
 			FRayRopeNodeSynchronizer::CacheAttachedActorOffset(MovedNode);
 			if (!TryQueueMoveInsertions(
 				SolveContext,

@@ -1,6 +1,6 @@
 #include "RayRopeMoveSolverInternal.h"
 
-#include "Helpers/RayRopeSurfaceGeometry.h"
+#include "Geometry/RayRopeSurfaceGeometry.h"
 
 namespace RayRopeMoveSolverPrivate
 {

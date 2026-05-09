@@ -138,12 +138,4 @@ FVector ClampMoveTarget(
 		: CurrentPoint + MoveDirection * MaxMoveDistance;
 }
 
-FRayRopeNode CreateMoveCandidateNode(
-	const FRayRopeNode& SourceNode,
-	const FVector& WorldLocation)
-{
-	FRayRopeNode CandidateNode = SourceNode;
-	CandidateNode.WorldLocation = WorldLocation;
-	return CandidateNode;
-}
 }

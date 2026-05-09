@@ -2,20 +2,47 @@
 
 namespace RayRopeMoveSolverPrivate
 {
+namespace
+{
+bool IsCandidateSeparatedFromNeighbors(
+	const FMoveSolveContext& SolveContext,
+	const FMoveNodeWindow& NodeWindow,
+	const FVector& CandidatePoint)
+{
+	return FVector::DistSquared(CandidatePoint, NodeWindow.PrevNode.WorldLocation) >
+			SolveContext.MinNodeSeparationSquared &&
+		FVector::DistSquared(CandidatePoint, NodeWindow.NextNode.WorldLocation) >
+			SolveContext.MinNodeSeparationSquared;
+}
+
+bool HasValidCandidateGeometry(
+	const FMoveSolveContext& SolveContext,
+	const FMoveNodeWindow& NodeWindow,
+	const FVector& CandidatePoint)
+{
+	return !CandidatePoint.ContainsNaN() &&
+		IsCandidateSeparatedFromNeighbors(SolveContext, NodeWindow, CandidatePoint);
+}
+
+FRayRopeNodeTransition MakeNodeTransition(
+	const FMoveNodeWindow& NodeWindow,
+	const FVector& CandidatePoint)
+{
+	return FRayRopeNodeTransition{
+		&NodeWindow.PrevNode,
+		&NodeWindow.CurrentNode,
+		&NodeWindow.NextNode,
+		CandidatePoint
+	};
+}
+}
+
 bool IsReachableMoveTarget(
 	const FMoveSolveContext& SolveContext,
 	const FMoveNodeWindow& NodeWindow,
 	const FVector& CandidatePoint)
 {
-	if (CandidatePoint.ContainsNaN())
-	{
-		return false;
-	}
-
-	if (FVector::DistSquared(CandidatePoint, NodeWindow.PrevNode.WorldLocation) <=
-			SolveContext.MinNodeSeparationSquared ||
-		FVector::DistSquared(CandidatePoint, NodeWindow.NextNode.WorldLocation) <=
-			SolveContext.MinNodeSeparationSquared)
+	if (!HasValidCandidateGeometry(SolveContext, NodeWindow, CandidatePoint))
 	{
 		return false;
 	}
@@ -33,16 +60,10 @@ bool IsReachableMoveTarget(
 		return false;
 	}
 
-	const FRayRopeNodeTransition Transition{
-		&NodeWindow.PrevNode,
-		&NodeWindow.CurrentNode,
-		&NodeWindow.NextNode,
-		CandidatePoint
-	};
 	return FRayRopeTransitionValidator::IsTransitionNodePathClear(
 		SolveContext.TraceContext,
 		SolveContext.TransitionValidationSettings,
-		Transition);
+		MakeNodeTransition(NodeWindow, CandidatePoint));
 }
 
 bool IsValidMovePoint(
@@ -50,15 +71,7 @@ bool IsValidMovePoint(
 	const FMoveNodeWindow& NodeWindow,
 	const FVector& CandidatePoint)
 {
-	if (CandidatePoint.ContainsNaN())
-	{
-		return false;
-	}
-
-	if (FVector::DistSquared(CandidatePoint, NodeWindow.PrevNode.WorldLocation) <=
-			SolveContext.MinNodeSeparationSquared ||
-		FVector::DistSquared(CandidatePoint, NodeWindow.NextNode.WorldLocation) <=
-			SolveContext.MinNodeSeparationSquared)
+	if (!HasValidCandidateGeometry(SolveContext, NodeWindow, CandidatePoint))
 	{
 		return false;
 	}
@@ -71,16 +84,10 @@ bool IsValidMovePoint(
 		return false;
 	}
 
-	const FRayRopeNodeTransition Transition{
-		&NodeWindow.PrevNode,
-		&NodeWindow.CurrentNode,
-		&NodeWindow.NextNode,
-		CandidatePoint
-	};
 	return FRayRopeTransitionValidator::IsNodeTransitionClear(
 		SolveContext.TraceContext,
 		SolveContext.TransitionValidationSettings,
-		Transition);
+		MakeNodeTransition(NodeWindow, CandidatePoint));
 }
 
 bool IsMoveImprovementSignificant(

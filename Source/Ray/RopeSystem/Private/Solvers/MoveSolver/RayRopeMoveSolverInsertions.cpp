@@ -18,7 +18,9 @@ bool TryBuildMoveWithNewNodes(
 		return false;
 	}
 
-	const FRayRopeNode CandidateNode = CreateMoveCandidateNode(NodeWindow.CurrentNode, TargetPoint);
+	const FRayRopeNode CandidateNode = FRayRopeNodeFactory::CreateNodeAtLocation(
+		NodeWindow.CurrentNode,
+		TargetPoint);
 	const FRayRopeSpan PrevCurrentSpan{&NodeWindow.PrevNode, &NodeWindow.CurrentNode};
 	const FRayRopeSpan CurrentNextSpan{&NodeWindow.CurrentNode, &NodeWindow.NextNode};
 	const FRayRopeSpan PrevCandidateSpan{&NodeWindow.PrevNode, &CandidateNode};

@@ -3,9 +3,17 @@
 
 struct FHitResult;
 
+/**
+ * Non-owning view of two adjacent rope nodes.
+ *
+ * Callers must keep the referenced nodes alive for the duration of the trace or geometry operation.
+ */
 struct FRayRopeSpan
 {
+	/** First node in the span; never owned by the span. */
 	const FRayRopeNode* StartNode = nullptr;
+
+	/** Second node in the span; never owned by the span. */
 	const FRayRopeNode* EndNode = nullptr;
 
 	bool IsValid() const
@@ -33,33 +41,65 @@ struct FRayRopeSpan
 		return GetDirection().SizeSquared();
 	}
 
+	/** Treats invalid spans and spans shorter than Epsilon as unusable geometry. */
 	bool IsDegenerate(float Epsilon) const
 	{
 		return !IsValid() || GetLengthSquared() <= FMath::Square(Epsilon);
 	}
 };
 
+/**
+ * External trace policy used to build reusable rope trace contexts.
+ */
 struct FRayRopeTraceSettings
 {
+	/** World used for all line traces and overlap probes. */
 	UWorld* World = nullptr;
+
+	/** Component owner ignored by default so the rope does not collide with its controller. */
 	const AActor* OwnerActor = nullptr;
+
+	/** Collision channel used for rope queries. */
 	ECollisionChannel TraceChannel = ECC_Visibility;
+
+	/** Whether rope queries should use complex collision. */
 	bool bTraceComplex = false;
 };
 
+/**
+ * Prepared query state shared by a solver pass.
+ */
 struct FRayRopeTraceContext
 {
+	/** World used for all line traces and overlap probes. */
 	UWorld* World = nullptr;
+
+	/** Collision channel used for rope queries. */
 	ECollisionChannel TraceChannel = ECC_Visibility;
+
+	/** Query params with the owner and any pass-specific ignored actors already applied. */
 	FCollisionQueryParams QueryParams;
 };
 
+/**
+ * Collision helpers for rope traces and free-point probes.
+ *
+ * Span traces ignore anchor endpoint actors so anchors do not block the rope attached to them.
+ */
 struct FRayRopeTrace
 {
+	/**
+	 * Builds a reusable context and appends the owner ignore and trace complexity policy.
+	 */
 	static FRayRopeTraceContext MakeTraceContext(
 		const FRayRopeTraceSettings& TraceSettings,
 		FCollisionQueryParams QueryParams);
 
+	/**
+	 * Traces a span while ignoring valid anchor actors at the span endpoints.
+	 *
+	 * Returns false for invalid spans, degenerate traces, missing worlds, and unusable initial hits.
+	 */
 	static bool TryTraceSpan(
 		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeSpan& Span,
@@ -69,6 +109,12 @@ struct FRayRopeTrace
 		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeSpan& Span);
 
+	/**
+	 * Traces between two world locations using the context query params.
+	 *
+	 * Initial hits are accepted only when the trace is entering the surface; otherwise a reverse trace
+	 * is attempted to avoid treating an exit from penetration as a valid wrap surface.
+	 */
 	static bool TryTraceBlockingHit(
 		const FRayRopeTraceContext& TraceContext,
 		const FVector& StartLocation,
@@ -80,6 +126,9 @@ struct FRayRopeTrace
 		const FVector& StartLocation,
 		const FVector& EndLocation);
 
+	/**
+	 * Copies a trace context and adds valid anchor endpoint actors to its ignore list.
+	 */
 	static FRayRopeTraceContext MakeTraceContextIgnoringEndpointActors(
 		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeNode* StartNode,
@@ -90,6 +139,9 @@ struct FRayRopeTrace
 		const FVector& WorldLocation,
 		float ProbeRadius = KINDA_SMALL_NUMBER);
 
+	/**
+	 * Returns true when a node overlaps blocking geometry, ignoring its valid anchor actor when needed.
+	 */
 	static bool IsNodeOverlappingGeometry(
 		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeNode& Node,
@@ -100,6 +152,9 @@ struct FRayRopeTrace
 		const FVector& WorldLocation,
 		float ProbeRadius = KINDA_SMALL_NUMBER);
 
+	/**
+	 * Returns true when the node location is finite and does not overlap blocking geometry.
+	 */
 	static bool IsValidFreeNode(
 		const FRayRopeTraceContext& TraceContext,
 		const FRayRopeNode& Node,

@@ -19,6 +19,7 @@ FVector CalculateCollapseTargetOnShortcutLine(
 
 	const float T = FVector::DotProduct(CurrentNode.WorldLocation - PrevNode.WorldLocation, Dir) / LenSq;
 
+	// Collapse toward the shortcut while staying between the neighboring nodes.
 	return PrevNode.WorldLocation + Dir * FMath::Clamp(T, 0.f, 1.f);
 }
 }

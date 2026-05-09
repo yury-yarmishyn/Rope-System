@@ -35,6 +35,7 @@ void SplitSegmentOnAnchors(TArray<FRayRopeSegment>& Segments, int32 SegmentIndex
 	int32 StartIndex = 0;
 	for (int32 NodeIndex = 1; NodeIndex < NodeCount; ++NodeIndex)
 	{
+		// Each internal anchor becomes both the end of the previous segment and the start of the next.
 		const bool bShouldSplit =
 			NodeIndex == NodeCount - 1 ||
 			Nodes[NodeIndex].NodeType == ERayRopeNodeType::Anchor;

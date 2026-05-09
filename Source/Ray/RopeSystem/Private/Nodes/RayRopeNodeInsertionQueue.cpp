@@ -32,6 +32,8 @@ bool AreEquivalentNodes(
 
 	if (bBothAttachedToSameValidActor)
 	{
+		// Actor-relative redirects should be compared in local space so moving geometry does not
+		// produce duplicate nodes just because the actor moved between solver passes.
 		return FirstNode.AttachedActorOffset.Equals(
 			SecondNode.AttachedActorOffset,
 			Settings.WrapSolverTolerance);

@@ -32,6 +32,7 @@ bool TryBuildMoveWithNewNodes(
 		FRayRopeTrace::HasBlockingSpanHit(SolveContext.TraceContext, CandidateNextSpan);
 	if (!bPrevCandidateBlocked && !bCandidateNextBlocked)
 	{
+		// Direct moves with clear final spans are handled by TryFindValidEffectivePoint.
 		return false;
 	}
 
@@ -111,6 +112,7 @@ bool TryQueueMoveInsertions(
 			PendingInsertions.Num() - OriginalPendingInsertionCount;
 		if (InsertedPendingInsertionCount > 0)
 		{
+			// Roll back the before-current insertions so a partially queued move cannot affect the pass.
 			PendingInsertions.RemoveAt(
 				OriginalPendingInsertionCount,
 				InsertedPendingInsertionCount,

@@ -334,6 +334,8 @@ bool TryBuildRedirectInput(
 	OutInput = FRayRopeRedirectBuildInput();
 
 	const FRayRopeSpan ReversedCurrentSpan{CurrentSpan.EndNode, CurrentSpan.StartNode};
+	// If the reference span is already blocked, there is no clear boundary to recover. Use the
+	// current hit directly and optionally pair it with a reverse hit for corner/parallel handling.
 	if (FRayRopeTrace::HasBlockingSpanHit(TraceContext, ReferenceSpan))
 	{
 		return TryBuildAlreadyBlockedRedirectInput(
@@ -441,6 +443,8 @@ bool TryFindBoundaryHit(
 	};
 	const float WrapSolverToleranceSquared = FMath::Square(Settings.WrapSolverTolerance);
 
+	// Binary-search both endpoints between the last known clear span and the first blocked span.
+	// The final blocked span gives a stable surface hit close to the moment wrapping became necessary.
 	const int32 MaxSearchIterations = FMath::Max(0, Settings.MaxWrapBinarySearchIterations);
 	for (int32 Iteration = 0; Iteration < MaxSearchIterations; ++Iteration)
 	{
@@ -536,7 +540,8 @@ void AppendRedirectNodes(
 {
 	const FHitResult* BackSurfaceHit = RedirectInput.GetBackSurfaceHitPtr();
 
-	// Redirect rules: one surface -> one redirect, corner -> one redirect, parallel planes -> two redirects.
+	// A single surface or corner can be represented by one redirect. Parallel opposing planes need
+	// two ordered redirects so the rope runs around both sides instead of cutting through the gap.
 	if (BackSurfaceHit == nullptr ||
 		!FRayRopeSurfaceGeometry::AreDirectionsNearlyCollinear(
 			RedirectInput.FrontSurfaceHit.ImpactNormal,

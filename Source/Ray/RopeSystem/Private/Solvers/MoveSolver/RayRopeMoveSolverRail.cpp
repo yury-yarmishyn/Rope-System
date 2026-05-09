@@ -116,6 +116,8 @@ bool TryFindRailDirectionSurfaceHits(
 		NodeWindow.NextNode.WorldLocation
 	};
 
+	// Search from the current redirect toward the neighbor span to recover the two surfaces that
+	// constrain the redirect. Endpoint actors are ignored so anchors do not hide nearby blockers.
 	FHitResult LastForwardSurfaceHit;
 	FVector LastBlockedTraceStart = FVector::ZeroVector;
 	FVector LastBlockedTraceEnd = FVector::ZeroVector;
@@ -202,6 +204,8 @@ bool TryBuildRailFromSurfaceHits(
 	FVector RailDirection = FVector::CrossProduct(FirstNormal, SecondNormal);
 	if (RailDirection.SizeSquared() <= SolveContext.PlaneParallelToleranceSquared)
 	{
+		// Parallel or nearly parallel planes do not define a stable intersection line. Fall back to
+		// the rope direction projected onto the surface so the node can still slide along the contact.
 		const FVector SpanDirection =
 			(NodeWindow.NextNode.WorldLocation - NodeWindow.PrevNode.WorldLocation).GetSafeNormal();
 		RailDirection = FVector::VectorPlaneProject(SpanDirection, FirstNormal);

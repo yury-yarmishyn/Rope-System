@@ -15,6 +15,8 @@ FVector CalculateProjectedPointOnHitPlane(
 
 	if (FMath::IsNearlyZero(Denominator))
 	{
+		// The span is parallel to the hit plane, so projection is underconstrained. Pick the endpoint
+		// nearest the impact point to keep redirect placement stable.
 		return FVector::DistSquared(SurfaceHit.ImpactPoint, LineStart) <=
 			FVector::DistSquared(SurfaceHit.ImpactPoint, LineEnd)
 			? LineStart
@@ -57,6 +59,7 @@ bool TryGetPlaneIntersectionLine(
 	const float BackPlaneDistance =
 		FVector::DotProduct(BackNormal, BackSurfaceHit.ImpactPoint);
 
+	// Closed-form point on the intersection line of two planes, using normalized plane equations.
 	OutLinePoint = FVector::CrossProduct(
 		FrontPlaneDistance * BackNormal - BackPlaneDistance * FrontNormal,
 		RawLineDirection) / RawLineDirectionSizeSquared;
@@ -97,6 +100,7 @@ FVector FindClosestPointOnLineToClampedSegment(
 		? FVector::DotProduct(LinePoint - SegmentStart, SegmentDirection) / A
 		: (B * E - C * D) / Denominator;
 
+	// Clamp only the rope segment parameter; the plane-intersection line remains unbounded.
 	SegmentT = FMath::Clamp(SegmentT, 0.f, 1.f);
 
 	const float LineT = (E + B * SegmentT) / C;

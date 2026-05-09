@@ -98,6 +98,8 @@ bool IsContinuousSpanFanClearUnchecked(
 	TArray<FRayRopeTransitionInterval, TInlineAllocator<16>> PendingIntervals;
 	PendingIntervals.Add(FRayRopeTransitionInterval{0.f, 1.f});
 
+	// The moving node sweeps a fan of two spans, not just a single point path. Sample interval
+	// midpoints breadth-first so narrow blockers are rejected without allocating per-depth arrays.
 	int32 NextIntervalIndex = 0;
 	for (int32 Iteration = 0;
 		Iteration < MaxIterations && PendingIntervals.IsValidIndex(NextIntervalIndex);

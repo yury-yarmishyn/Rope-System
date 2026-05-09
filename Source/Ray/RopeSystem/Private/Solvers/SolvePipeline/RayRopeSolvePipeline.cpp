@@ -27,6 +27,7 @@ void FRayRopeSolvePipeline::SolveSegment(
 	CacheReferenceNodes(Segment, ReferenceNodes);
 
 	FRayRopeNodeSynchronizer::SyncSegmentNodes(Segment);
+	// Wrap before movement so newly blocked spans get redirects before any redirect tries to slide.
 	FRayRopeWrapSolver::WrapSegment(
 		SolveSettings.TraceSettings,
 		SolveSettings.NodeBuildSettings,
@@ -40,6 +41,7 @@ void FRayRopeSolvePipeline::SolveSegment(
 		Segment);
 	if (ReferenceNodes.Num() != Segment.Nodes.Num())
 	{
+		// Move can add redirects around its effective point; refresh the snapshot before wrapping again.
 		CacheReferenceNodes(Segment, ReferenceNodes);
 	}
 	FRayRopeWrapSolver::WrapSegment(

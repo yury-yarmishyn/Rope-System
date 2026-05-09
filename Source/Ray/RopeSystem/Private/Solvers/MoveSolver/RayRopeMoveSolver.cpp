@@ -25,6 +25,7 @@ void FRayRopeMoveSolver::MoveSegment(
 
 	for (int32 MoveIteration = 0; MoveIteration < SolveContext.MaxMoveIterations; ++MoveIteration)
 	{
+		// Alternate sweep direction so redirects are not biased toward the start of the segment.
 		const bool bMoveForward = MoveIteration % 2 == 0;
 		const int32 FirstNodeIndex = bMoveForward ? 1 : Segment.Nodes.Num() - 2;
 		const int32 LastNodeIndex = bMoveForward ? Segment.Nodes.Num() - 1 : 0;

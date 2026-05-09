@@ -8,6 +8,7 @@ namespace
 {
 bool IsInitialTraceHit(const FHitResult& Hit)
 {
+	// Unreal can report a blocking hit at trace time zero when a trace starts in penetration.
 	return Hit.bStartPenetrating ||
 		(Hit.Distance <= KINDA_SMALL_NUMBER && Hit.Time <= KINDA_SMALL_NUMBER);
 }
@@ -42,6 +43,7 @@ void BuildTraceQueryParams(
 
 const AActor* GetIgnoredEndpointActor(const FRayRopeNode* Node)
 {
+	// Only anchor endpoints are ignored. Redirects still need to collide with their attached geometry.
 	if (Node == nullptr)
 	{
 		return nullptr;
@@ -127,6 +129,8 @@ bool TryTraceBlockingHitWithQueryParams(
 		return true;
 	}
 
+	// A forward initial hit may be an exit from penetration. The reverse trace recovers the usable
+	// entering surface without letting penetration starts create false wrap points.
 	FHitResult FallbackHit;
 	TraceContext.World->LineTraceSingleByChannel(
 		FallbackHit,

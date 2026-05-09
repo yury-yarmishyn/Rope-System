@@ -97,6 +97,7 @@ bool IsMoveImprovementSignificant(
 {
 	if (!NodeWindow.IsCurrentPointFree(SolveContext.TraceContext))
 	{
+		// Escaping penetration is more important than shortening the local rope path.
 		return true;
 	}
 

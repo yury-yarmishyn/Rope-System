@@ -48,6 +48,7 @@ void RemovePrimitiveOutwardVelocity(AActor* OwnerActor, const FVector& OutwardDi
 			FVector::DotProduct(LinearVelocity, OutwardDirection);
 		if (OutwardSpeed > 0.f)
 		{
+			// Apply an impulse equivalent to removing only the outward component of velocity.
 			RootPrimitive->AddImpulse(
 				-OutwardDirection * OutwardSpeed * RootPrimitive->GetMass(),
 				NAME_None,

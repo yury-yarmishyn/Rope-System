@@ -48,6 +48,8 @@ float FindBestRailParameter(
 
 		const float LeftMidDistanceSum = CalculateRailDistanceSum(SearchContext, LeftMidRailParameter);
 		const float RightMidDistanceSum = CalculateRailDistanceSum(SearchContext, RightMidRailParameter);
+		// The local rope length along a rail is convex enough for interval shrinking; sampling both
+		// quarter points keeps the best candidate even when the current point is already near optimal.
 		if (LeftMidDistanceSum < BestDistanceSum)
 		{
 			BestRailParameter = LeftMidRailParameter;
@@ -153,6 +155,7 @@ bool TryFindValidEffectivePoint(
 	bool bFoundValidPoint = false;
 	const int32 MaxSearchIterations =
 		FMath::Max(1, SolveContext.MaxEffectivePointSearchIterations);
+	// Walk back from the ideal target toward the current free point until the transition is valid.
 	for (int32 Iteration = 0; Iteration < MaxSearchIterations; ++Iteration)
 	{
 		const FVector CandidatePoint = (LastValidPoint + LastInvalidPoint) * 0.5f;

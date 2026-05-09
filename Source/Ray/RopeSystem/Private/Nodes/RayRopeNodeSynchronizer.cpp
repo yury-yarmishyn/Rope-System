@@ -22,6 +22,7 @@ void CacheAnchorTarget(FRayRopeNode& Node)
 {
 	ClearCachedAnchorTarget(Node);
 
+	// Interface results are cached only for the current sync; components and sockets can change at runtime.
 	USceneComponent* AnchorComponent = IRayRopeInterface::Execute_GetAnchorComponent(Node.AttachedActor);
 	if (!IsValid(AnchorComponent))
 	{
@@ -65,6 +66,7 @@ void SyncAnchorNode(FRayRopeNode& Node)
 
 	if (!ImplementsRopeInterface(Node.AttachedActor))
 	{
+		// Plain actors remain usable as anchors, but they fall back to actor origin semantics.
 		ClearCachedAnchorTarget(Node);
 		Node.WorldLocation = Node.AttachedActor->GetActorLocation();
 		return;

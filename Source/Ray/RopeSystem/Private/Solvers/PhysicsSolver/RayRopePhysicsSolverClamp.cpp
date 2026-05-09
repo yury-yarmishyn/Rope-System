@@ -42,6 +42,7 @@ bool ClampOwnerAnchorToMaxRopeLength(
 		return false;
 	}
 
+	// Move the actor with sweep enabled so the length clamp respects world collision.
 	const FVector StartActorLocation = OwnerActor->GetActorLocation();
 	FHitResult SweepHit;
 	OwnerActor->SetActorLocation(

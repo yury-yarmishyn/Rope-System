@@ -28,6 +28,7 @@ bool CanRemoveRecoverableNode(
 		return true;
 	}
 
+	// A penetrating redirect can be removed if it could have legally collapsed to the clear shortcut.
 	return CanMoveCurrentNodeToTarget(SolveContext, NodeWindow);
 }
 }
@@ -82,6 +83,8 @@ ERelaxNodeResult RelaxNode(
 
 	if (!NodeWindow.IsCurrentPointFree(SolveContext))
 	{
+		// Prefer removing invalid redirects when the shortcut proves recoverable; moving a point that
+		// starts in geometry can otherwise create persistent jitter around collision boundaries.
 		return TryRemoveNode(
 			SolveContext,
 			Segment,

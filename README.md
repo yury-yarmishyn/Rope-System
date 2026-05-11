@@ -1,5 +1,11 @@
 # Ray Rope System
 
+## Video Demo
+
+[![Ray Rope System video demo](https://img.youtube.com/vi/fA-1VRwdwPM/maxresdefault.jpg)](https://youtu.be/fA-1VRwdwPM)
+
+Watch the demo: https://youtu.be/fA-1VRwdwPM
+
 This project contains a custom gameplay rope topology system for Unreal Engine. The rope is represented as a set of logical nodes grouped into ordered segments and solved as a piecewise-linear path in world space.
 
 `URayRopeComponent` does not render the rope and it is not a full rope physics simulation. Its responsibility is to keep a stable, explicit rope route while anchors move and while the rope wraps, moves, unwraps, or splits around collision and anchor actors.

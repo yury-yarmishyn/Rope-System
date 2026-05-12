@@ -109,6 +109,10 @@
 			"Enabled": true
 		},
 		{
+			"Name": "RayRope",
+			"Enabled": true
+		},
+		{
 			"Name": "CommonUI",
 			"Enabled": true
 		}

@@ -1,0 +1,17 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Ray Rope",
+	"Description": "Runtime rope component and solvers for Ray.",
+	"Category": "Gameplay",
+	"CanContainContent": false,
+	"IsBetaVersion": false,
+	"Modules": [
+		{
+			"Name": "RayRope",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

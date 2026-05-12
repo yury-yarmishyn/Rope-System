@@ -1,8 +1,8 @@
-# Ray Rope System
+# RayRope
 
 ## Video Demo
 
-[![Ray Rope System video demo](https://img.youtube.com/vi/fA-1VRwdwPM/maxresdefault.jpg)](https://youtu.be/fA-1VRwdwPM)
+[![RayRope video demo](https://img.youtube.com/vi/fA-1VRwdwPM/maxresdefault.jpg)](https://youtu.be/fA-1VRwdwPM)
 
 Watch the demo: https://youtu.be/fA-1VRwdwPM
 
@@ -13,10 +13,10 @@ This project contains a custom gameplay rope topology system for Unreal Engine. 
 ## Project Snapshot
 
 - Unreal Engine `5.7` C++ project.
-- The rope code lives in `Source/Ray/RopeSystem`.
-- The main gameplay-facing class is `URayRopeComponent` in `Source/Ray/RopeSystem/Public/Component/RayRopeComponent.h`.
-- Public rope types are defined in `Source/Ray/RopeSystem/Public/Types/RayRopeTypes.h`.
-- Anchor actors can implement `URayRopeInterface` from `Source/Ray/RopeSystem/Public/Interfaces/RayRopeInterface.h`.
+- The rope code lives in `Source/Ray/RayRope`.
+- The main gameplay-facing class is `URayRopeComponent` in `Source/Ray/RayRope/Public/Component/RayRopeComponent.h`.
+- Public rope types are defined in `Source/Ray/RayRope/Public/Types/RayRopeTypes.h`.
+- Anchor actors can implement `URayRopeInterface` from `Source/Ray/RayRope/Public/Interfaces/RayRopeInterface.h`.
 - Prototype content lives under `/Game/Ray`, including `/Game/Ray/Levels/Lvl_FirstPerson`, `/Game/Ray/Characters/Player/BPC_RopeComponent`, and `/Game/Ray/MovingActor`.
 - The runtime module currently depends on `GameplayAbilities`, `GameplayTags`, `GameplayTasks`, `EnhancedInput`, `StateTreeModule`, and `CommonUI`.
 
@@ -135,10 +135,20 @@ Move settings:
   Required local path-length improvement for moving a free redirect.
 - `MoveMaxDistancePerIteration`
   Per-iteration move cap. `0` or less disables the cap.
+- `bUseGlobalMoveSolver`
+  Runs the batch rail-coordinate solver before the local redirect sweep.
+- `bFallbackToLocalMoveSolver`
+  Runs the local redirect sweep when the global solver is not applicable or cannot find a valid step.
 - `MaxMoveIterations`
-  Number of alternating forward/backward sweeps over redirect nodes.
+  Number of alternating forward/backward sweeps used by the local move fallback.
 - `MaxEffectivePointSearchIterations`
-  Shared iteration budget for rail hit search, rail optimization, and transition validation.
+  Shared iteration budget for rail hit search, rail optimization, transition validation, and global move sample validation.
+- `MaxGlobalMoveIterations`
+  Maximum number of accepted global batch steps per move pass.
+- `MaxGlobalMoveLineSearchSteps`
+  Maximum number of shared-alpha backtracking attempts for each global step.
+- `GlobalMoveDamping`
+  Positive diagonal regularizer used by the global rail-coordinate linear system.
 
 Relax settings:
 
@@ -224,7 +234,7 @@ Each segment is solved by `FRayRopeSolvePipeline` in this order:
    Inserts anchors or redirects for spans that are blocked relative to the reference snapshot.
 4. Cache a new reference copy after wrapping.
 5. `MoveSegment`
-   Moves existing redirects along collision-derived rails. The pass alternates forward and backward sweeps and may queue extra redirects if a moved node exposes blocked adjacent spans.
+   Moves existing redirects along collision-derived rails. When enabled, the global move solver first tries to move several redirects as one coordinated batch. If that is not applicable or cannot find a valid step, the local fallback alternates forward/backward sweeps and may queue extra redirects if a moved node exposes blocked adjacent spans.
 6. If movement changed the node count, refresh the reference snapshot.
 7. `WrapSegment`
    Runs again so the post-move topology cannot keep newly blocked spans.
@@ -272,7 +282,77 @@ The final redirect is offset by `WrapSurfaceOffset` along the surface normal for
 
 `MoveSegment` tries to shorten existing redirect bends while preserving collision correctness.
 
-For each redirect, it:
+The pass has two layers:
+
+- Global move solver
+  A batch solver that moves several redirects together in rail coordinates.
+- Local move solver
+  A per-node fallback that moves one redirect at a time and can build extra redirects around a moved node.
+
+The global solver runs first when `bUseGlobalMoveSolver` is true. If it returns `Applied` or `Converged`, the move pass ends. If it returns `NotApplicable` or `NoValidStep`, `bFallbackToLocalMoveSolver` decides whether the local sweep runs afterward.
+
+### Global Move Solver
+
+The global move solver is designed for runs of multiple redirect nodes where moving one bend at a time can be too conservative. Instead of choosing one redirect target independently, it solves a small coupled system in which each eligible redirect moves along its own collision-derived rail and all accepted movement uses one shared step alpha.
+
+The implementation mirrors the solver stages across `RayRopeMoveSolverGlobal*.cpp`: state building, system assembly/solve, line search, validation, and final application are kept in separate files.
+
+It is intentionally narrow in scope:
+
+- It runs only when `MaxGlobalMoveIterations > 0`.
+- The segment must have at least five nodes.
+- The segment must contain at least three redirect nodes.
+- At least three redirects must produce usable movement rails for the current global iteration.
+- It never inserts nodes. If movement exposes new blocked spans, the solve pipeline runs wrap afterward on the affected ranges.
+
+For each global iteration, the solver performs these stages.
+
+1. Build redirect states
+   The solver scans non-terminal redirect nodes. For every redirect, it builds the same rail used by local movement: two contact surfaces are recovered around the redirect, their normals define an intersection direction, and nearly parallel planes fall back to a projected rope direction. Usable states store the node index, start location, normalized rail, and a temporary scalar rail delta.
+
+2. Build the rail-coordinate objective
+   Every movable redirect is treated as one scalar unknown: how far to slide along its rail. The objective is the total polyline length of the segment after those rail-coordinate displacements. The solver linearizes this objective around the current topology by accumulating first derivatives and a tridiagonal Hessian approximation from each span.
+
+3. Solve the tridiagonal system
+   The system stores `Gradient`, `Diagonal`, `Upper`, and `Delta` arrays. `GlobalMoveDamping` is added to the diagonal so nearly flat or weakly constrained configurations remain numerically stable. The resulting delta values are proposed rail-coordinate displacements for all usable redirects.
+
+4. Detect convergence
+   If the largest absolute proposed rail displacement is below `MoveMinMoveDistance`, the iteration is treated as converged. If previous global iterations already applied movement, the solver reports `Applied`; otherwise it reports `Converged`.
+
+5. Choose an initial shared alpha
+   The solver applies `MoveMaxDistancePerIteration` as a cap over the largest proposed rail displacement. If the cap is disabled or not exceeded, initial alpha is `1`. Otherwise alpha is scaled down so no node moves farther than the per-iteration cap.
+
+6. Backtracking line search
+   The solver tries the initial alpha, then halves it up to `MaxGlobalMoveLineSearchSteps`. A candidate alpha is rejected when:
+   - maximum movement at alpha is below `MoveMinMoveDistance`;
+   - no span range is affected by a meaningful movement;
+   - total segment length does not improve by at least `MoveMinLengthImprovement`;
+   - any affected node is not a free point;
+   - any affected span violates `MoveMinNodeSeparation`;
+   - any affected span has a blocking trace hit;
+   - any sampled intermediate alpha fails the same node/span checks.
+
+7. Apply the accepted batch
+   Accepted movement creates updated redirect nodes at their alpha-scaled rail positions, preserves attachment metadata, refreshes actor-local redirect offsets, marks node locations changed, and records the affected span range. Rails are rebuilt on the next global iteration instead of being reused after movement.
+
+The global validation path caches all node locations for each tested alpha, then reuses that buffer for free-point, separation, length, and span-clear checks. This avoids recomputing the same alpha positions several times inside one validation pass.
+
+The solver returns one of four statuses:
+
+- `NotApplicable`
+  The segment is too small, has too few redirects, global iterations are disabled, or too few redirects can build usable rails.
+- `Converged`
+  A valid global solve found no movement above `MoveMinMoveDistance`.
+- `Applied`
+  At least one global batch step was accepted.
+- `NoValidStep`
+  A global step was mathematically proposed, but line search or validation rejected every candidate.
+
+### Local Move Fallback
+
+The local fallback operates one redirect at a time. It is used when global solving is disabled, not applicable, or cannot find a valid step and fallback is allowed.
+
+For each redirect, the local pass:
 
 1. Searches from the redirect toward its neighboring spans to recover forward and reverse surface hits.
 2. Builds a movement rail from the cross product of the two hit normals.
@@ -283,6 +363,8 @@ For each redirect, it:
 7. If the direct moved result is reachable but its final adjacent spans are blocked, builds extra redirects around the moved node.
 
 Penetrating redirects are allowed to move even if the local length does not improve, because escaping invalid geometry is more important than shortening the path in that case.
+
+The local pass alternates sweep direction each iteration so redirects are not biased toward the start of the segment. Insertions are deferred until the end of each sweep so node indexes stay stable while the sweep is evaluating moves.
 
 ## Relaxation Logic
 

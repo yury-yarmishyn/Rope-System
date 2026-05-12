@@ -30,9 +30,22 @@
     <option name="firstShow" value="false" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="10736" />
+    <option name="cachedIndexableFilesCount" value="10697" />
   </component>
   <component name="Git.Settings">
+    <excluded-from-favorite>
+      <branch-storage>
+        <map>
+          <entry type="LOCAL">
+            <value>
+              <list>
+                <branch-info repo="$PROJECT_DIR$" source="main" />
+              </list>
+            </value>
+          </entry>
+        </map>
+      </branch-storage>
+    </excluded-from-favorite>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
   <component name="GitHubPullRequestSearchHistory">{
@@ -224,6 +237,10 @@
       <workItem from="1778190399709" duration="10925000" />
       <workItem from="1778224613443" duration="3489000" />
       <workItem from="1778427747471" duration="956000" />
+      <workItem from="1778534170026" duration="3291000" />
+      <workItem from="1778570404993" duration="3445000" />
+      <workItem from="1778574947318" duration="2817000" />
+      <workItem from="1778580612343" duration="1104000" />
     </task>
     <servers />
   </component>

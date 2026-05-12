@@ -1,16 +1,31 @@
 #include "Component/RayRopeComponent.h"
 
 #include "Component/RayRopeComponentSettings.h"
+#include "Debug/RayRopeDebugContext.h"
 #include "Topology/RayRopeInitialSegmentBuilder.h"
 
 bool URayRopeComponent::TryStartRopeSolve(const TArray<AActor*>& AnchorActors)
 {
 	TArray<FRayRopeSegment> BaseSegments;
+#if RAYROPE_WITH_DEBUG
+	FRayRopeDebugContext DebugContext(
+		GetWorld(),
+		GetOwner(),
+		RopeDebugSettings,
+		TEXT("TryStartRopeSolve"));
+	FRayRopeDebugContext* DebugContextPtr = FRayRopeDebugContext::ShouldCreateForSolvers(RopeDebugSettings)
+		? &DebugContext
+		: nullptr;
+#else
+	FRayRopeDebugContext* DebugContextPtr = nullptr;
+#endif
+
 	if (!FRayRopeInitialSegmentBuilder::TryBuildSegments(
-		FRayRopeComponentSettings::MakeTraceSettings(*this),
+		FRayRopeComponentSettings::MakeTraceSettings(*this, DebugContextPtr),
 		AnchorActors,
 		BaseSegments))
 	{
+#if RAYROPE_WITH_DEBUG
 		if (IsDebugLogEnabled())
 		{
 			UE_LOG(
@@ -20,8 +35,12 @@ bool URayRopeComponent::TryStartRopeSolve(const TArray<AActor*>& AnchorActors)
 				*GetNameSafe(GetOwner()),
 				AnchorActors.Num());
 		}
+#endif
 
 		LogDebugRopeState(TEXT("TryStartRopeSolveFailed"), true);
+#if RAYROPE_WITH_DEBUG
+		DebugContext.LogFrameSummary(TEXT("TryStartRopeSolveFailed"));
+#endif
 		return false;
 	}
 
@@ -35,6 +54,9 @@ bool URayRopeComponent::TryStartRopeSolve(const TArray<AActor*>& AnchorActors)
 	}
 
 	LogDebugRopeState(TEXT("TryStartRopeSolve"), true);
+#if RAYROPE_WITH_DEBUG
+	DebugContext.LogFrameSummary(TEXT("TryStartRopeSolve"));
+#endif
 	return true;
 }
 
@@ -56,6 +78,7 @@ bool URayRopeComponent::BreakRopeOnSegment(int32 SegmentIndex)
 {
 	if (!RopeSegments.IsValidIndex(SegmentIndex))
 	{
+#if RAYROPE_WITH_DEBUG
 		if (IsDebugLogEnabled())
 		{
 			UE_LOG(
@@ -66,6 +89,7 @@ bool URayRopeComponent::BreakRopeOnSegment(int32 SegmentIndex)
 				SegmentIndex,
 				RopeSegments.Num());
 		}
+#endif
 
 		return false;
 	}
@@ -140,13 +164,21 @@ void URayRopeComponent::SetSegments(TArray<FRayRopeSegment> NewSegments)
 
 void URayRopeComponent::SetRopeDebugEnabled(bool bEnabled)
 {
+#if RAYROPE_WITH_DEBUG
 	RopeDebugSettings.bDebugEnabled = bEnabled;
 	NextDebugLogTimeSeconds = 0.f;
 
 	TickDebug(bEnabled ? TEXT("SetRopeDebugEnabled") : TEXT("SetRopeDebugDisabled"));
+#else
+	RopeDebugSettings.bDebugEnabled = false;
+#endif
 }
 
 bool URayRopeComponent::IsRopeDebugEnabled() const
 {
+#if RAYROPE_WITH_DEBUG
 	return RopeDebugSettings.bDebugEnabled;
+#else
+	return false;
+#endif
 }

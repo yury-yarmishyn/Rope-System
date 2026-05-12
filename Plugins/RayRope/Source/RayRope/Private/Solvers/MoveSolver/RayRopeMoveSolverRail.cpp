@@ -1,5 +1,6 @@
 #include "RayRopeMoveSolverInternal.h"
 
+#include "Debug/RayRopeDebugContext.h"
 #include "Geometry/RayRopeSurfaceGeometry.h"
 
 namespace RayRopeMoveSolverPrivate
@@ -96,6 +97,14 @@ bool TryFindRailDirectionSurfaceHits(
 		NodeWindow.CurrentNode.WorldLocation.ContainsNaN() ||
 		NodeWindow.NextNode.WorldLocation.ContainsNaN())
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveRail"),
+				FString::Printf(
+					TEXT("Node[%d] rejected: invalid world or NaN node"),
+					NodeWindow.NodeIndex));
+		}
 		return false;
 	}
 
@@ -106,6 +115,14 @@ bool TryFindRailDirectionSurfaceHits(
 			NodeWindow.CurrentNode.WorldLocation,
 			NodeWindow.NextNode.WorldLocation) <= SolveContext.MinNodeSeparationSquared)
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveRail"),
+				FString::Printf(
+					TEXT("Node[%d] rejected: below min node separation"),
+					NodeWindow.NodeIndex));
+		}
 		return false;
 	}
 
@@ -161,6 +178,14 @@ bool TryFindRailDirectionSurfaceHits(
 
 	if (!LastForwardSurfaceHit.bBlockingHit)
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveRail"),
+				FString::Printf(
+					TEXT("Node[%d] rejected: no forward surface hit"),
+					NodeWindow.NodeIndex));
+		}
 		return false;
 	}
 
@@ -172,6 +197,14 @@ bool TryFindRailDirectionSurfaceHits(
 		LastBlockedTraceStart,
 		ReverseSurfaceHit))
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveRail"),
+				FString::Printf(
+					TEXT("Node[%d] rejected: no reverse surface hit"),
+					NodeWindow.NodeIndex));
+		}
 		return false;
 	}
 
@@ -191,6 +224,14 @@ bool TryBuildRailFromSurfaceHits(
 
 	if (!FirstSurfaceHit.bBlockingHit || !SecondSurfaceHit.bBlockingHit)
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveRail"),
+				FString::Printf(
+					TEXT("Node[%d] rejected: missing blocking hit pair"),
+					NodeWindow.NodeIndex));
+		}
 		return false;
 	}
 
@@ -198,6 +239,14 @@ bool TryBuildRailFromSurfaceHits(
 	const FVector SecondNormal = SecondSurfaceHit.ImpactNormal.GetSafeNormal();
 	if (FirstNormal.IsNearlyZero() || SecondNormal.IsNearlyZero())
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveRail"),
+				FString::Printf(
+					TEXT("Node[%d] rejected: invalid surface normal"),
+					NodeWindow.NodeIndex));
+		}
 		return false;
 	}
 
@@ -225,6 +274,14 @@ bool TryBuildRailFromSurfaceHits(
 
 		if (RailDirection.SizeSquared() <= KINDA_SMALL_NUMBER)
 		{
+			if (SolveContext.TraceContext.DebugContext != nullptr)
+			{
+				SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+					TEXT("MoveRail"),
+					FString::Printf(
+						TEXT("Node[%d] rejected: parallel surfaces did not produce fallback rail"),
+						NodeWindow.NodeIndex));
+			}
 			return false;
 		}
 	}
@@ -232,6 +289,14 @@ bool TryBuildRailFromSurfaceHits(
 	const FVector RailDirectionNormal = RailDirection.GetSafeNormal();
 	if (RailDirectionNormal.IsNearlyZero())
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveRail"),
+				FString::Printf(
+					TEXT("Node[%d] rejected: zero rail direction"),
+					NodeWindow.NodeIndex));
+		}
 		return false;
 	}
 
@@ -246,7 +311,37 @@ bool TryBuildRailFromSurfaceHits(
 
 	OutRail.Origin = SurfaceRailPoint + OffsetDirection * SolveContext.SurfaceOffset;
 	OutRail.Direction = RailDirectionNormal;
-	return !OutRail.Origin.ContainsNaN();
+	if (OutRail.Origin.ContainsNaN())
+	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveRail"),
+				FString::Printf(
+					TEXT("Node[%d] rejected: rail origin is NaN"),
+					NodeWindow.NodeIndex));
+		}
+		return false;
+	}
+
+	if (SolveContext.TraceContext.DebugContext != nullptr)
+	{
+		SolveContext.TraceContext.DebugContext->DrawSolverRail(
+			ERayRopeDebugDrawFlags::MoveRails,
+			OutRail.Origin,
+			OutRail.Direction,
+			FVector::Dist(NodeWindow.PrevNode.WorldLocation, NodeWindow.NextNode.WorldLocation),
+			TEXT("MoveRail"));
+		SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+			TEXT("MoveRail"),
+			FString::Printf(
+				TEXT("Node[%d] rail Origin=%s Direction=%s"),
+				NodeWindow.NodeIndex,
+				*OutRail.Origin.ToCompactString(),
+				*OutRail.Direction.ToCompactString()));
+	}
+
+	return true;
 }
 }
 

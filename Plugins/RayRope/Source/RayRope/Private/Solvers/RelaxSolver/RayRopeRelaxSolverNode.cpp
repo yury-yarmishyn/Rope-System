@@ -1,11 +1,52 @@
 #include "RayRopeRelaxSolverInternal.h"
 
+#include "Debug/RayRopeDebugContext.h"
 #include "Nodes/RayRopeNodeSynchronizer.h"
 
 namespace RayRopeRelaxSolverPrivate
 {
 namespace
 {
+void RecordRelaxEvent(
+	const FRelaxSolveContext& SolveContext,
+	int32 NodeIndex,
+	const FString& Message)
+{
+	if (SolveContext.TraceContext.DebugContext == nullptr)
+	{
+		return;
+	}
+
+	SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+		TEXT("Relax"),
+		FString::Printf(
+			TEXT("Node[%d] %s"),
+			NodeIndex,
+			*Message));
+}
+
+void DrawRelaxShortcut(
+	const FRelaxSolveContext& SolveContext,
+	const FRelaxNodeWindow& NodeWindow)
+{
+	if (SolveContext.TraceContext.DebugContext == nullptr)
+	{
+		return;
+	}
+
+	SolveContext.TraceContext.DebugContext->DrawSolverLine(
+		ERayRopeDebugDrawFlags::Relax,
+		NodeWindow.PrevNode.WorldLocation,
+		NodeWindow.NextNode.WorldLocation,
+		SolveContext.TraceContext.DebugContext->GetSettings().DebugSolverGuideColor,
+		TEXT("RelaxShortcut"));
+	SolveContext.TraceContext.DebugContext->DrawSolverPoint(
+		ERayRopeDebugDrawFlags::Relax,
+		NodeWindow.CollapseTarget,
+		SolveContext.TraceContext.DebugContext->GetSettings().DebugCandidateColor,
+		TEXT("CollapseTarget"));
+}
+
 bool CanRemoveCollapsedNode(
 	const FRelaxSolveContext& SolveContext,
 	const FRelaxNodeWindow& NodeWindow)
@@ -64,9 +105,16 @@ bool TryRemoveNode(
 		: CanRemoveCollapsedNode(SolveContext, NodeWindow);
 	if (!bCanRemove)
 	{
+		RecordRelaxEvent(
+			SolveContext,
+			NodeIndex,
+			bAllowRecoverableUncollapsedNode
+				? TEXT("remove rejected: shortcut is blocked or node cannot recover to collapse target")
+				: TEXT("remove rejected: node is not collapsed or shortcut is blocked"));
 		return false;
 	}
 
+	RecordRelaxEvent(SolveContext, NodeIndex, TEXT("remove accepted"));
 	Segment.Nodes.RemoveAt(NodeIndex, 1, EAllowShrinking::No);
 	return true;
 }
@@ -80,9 +128,14 @@ ERelaxNodeResult RelaxNode(
 	FRayRopeNode& CurrentNode = Segment.Nodes[NodeIndex];
 	const FRayRopeNode& NextNode = Segment.Nodes[NodeIndex + 1];
 	FRelaxNodeWindow NodeWindow(PrevNode, CurrentNode, NextNode);
+	DrawRelaxShortcut(SolveContext, NodeWindow);
 
 	if (!NodeWindow.IsCurrentPointFree(SolveContext))
 	{
+		RecordRelaxEvent(
+			SolveContext,
+			NodeIndex,
+			TEXT("current point is inside geometry; trying recoverable removal"));
 		// Prefer removing invalid redirects when the shortcut proves recoverable; moving a point that
 		// starts in geometry can otherwise create persistent jitter around collision boundaries.
 		return TryRemoveNode(
@@ -97,6 +150,10 @@ ERelaxNodeResult RelaxNode(
 
 	if (NodeWindow.IsCurrentAtCollapseTarget(SolveContext))
 	{
+		RecordRelaxEvent(
+			SolveContext,
+			NodeIndex,
+			TEXT("already at collapse target; trying removal"));
 		return TryRemoveNode(
 			SolveContext,
 			Segment,
@@ -109,8 +166,19 @@ ERelaxNodeResult RelaxNode(
 
 	if (!TryCollapseNode(SolveContext, NodeWindow))
 	{
+		RecordRelaxEvent(
+			SolveContext,
+			NodeIndex,
+			TEXT("collapse rejected: transition to target is blocked"));
 		return ERelaxNodeResult::Unchanged;
 	}
+
+	RecordRelaxEvent(
+		SolveContext,
+		NodeIndex,
+		FString::Printf(
+			TEXT("collapse accepted Target=%s"),
+			*NodeWindow.CollapseTarget.ToCompactString()));
 
 	return TryRemoveNode(
 		SolveContext,

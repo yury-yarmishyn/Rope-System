@@ -1,5 +1,6 @@
 #include "Solvers/SolvePipeline/RayRopeSolvePipeline.h"
 
+#include "Debug/RayRopeDebugContext.h"
 #include "Nodes/RayRopeNodeSynchronizer.h"
 #include "Solvers/MoveSolver/RayRopeMoveSolver.h"
 #include "Solvers/RelaxSolver/RayRopeRelaxSolver.h"
@@ -42,6 +43,42 @@ FRayRopeSolveResult DetectNodeLocationChanges(
 	return Result;
 }
 
+FString DescribeSolveResult(const FRayRopeSolveResult& Result)
+{
+	return FString::Printf(
+		TEXT("Topology=%s Locations=%s AffectedRanges=%d"),
+		Result.bTopologyChanged ? TEXT("true") : TEXT("false"),
+		Result.bNodeLocationsChanged ? TEXT("true") : TEXT("false"),
+		Result.AffectedSpanRanges.Num());
+}
+
+void RecordPassResult(
+	FRayRopeDebugContext* DebugContext,
+	const TCHAR* PassName,
+	int32 SegmentIndex,
+	const FRayRopeSolveResult& Result,
+	float LengthBefore,
+	float LengthAfter,
+	int32 NodeCountBefore,
+	int32 NodeCountAfter)
+{
+	if (DebugContext == nullptr)
+	{
+		return;
+	}
+
+	DebugContext->RecordSolverEvent(
+		PassName,
+		FString::Printf(
+			TEXT("Segment[%d] %s Length=%.2f->%.2f Nodes=%d->%d"),
+			SegmentIndex,
+			*DescribeSolveResult(Result),
+			LengthBefore,
+			LengthAfter,
+			NodeCountBefore,
+			NodeCountAfter));
+}
+
 }
 
 FRayRopeSolveResult FRayRopeSolvePipeline::SolveSegment(
@@ -52,27 +89,64 @@ FRayRopeSolveResult FRayRopeSolvePipeline::SolveSegment(
 	bool bLogNodeCountChanges)
 {
 	FRayRopeSolveResult Result;
+	FRayRopeDebugContext* DebugContext = SolveSettings.TraceSettings.DebugContext;
 	const int32 InitialNodeCount = Segment.Nodes.Num();
+	const float InitialLength = FRayRopeSegmentTopology::CalculateSegmentLength(Segment);
 	CacheReferenceNodes(Segment, ReferenceNodes);
 
 	FRayRopeNodeSynchronizer::SyncSegmentNodes(Segment);
-	Result.Merge(DetectNodeLocationChanges(Segment, ReferenceNodes));
+	const FRayRopeSolveResult SyncResult = DetectNodeLocationChanges(Segment, ReferenceNodes);
+	Result.Merge(SyncResult);
+	RecordPassResult(
+		DebugContext,
+		TEXT("Sync"),
+		SegmentIndex,
+		SyncResult,
+		InitialLength,
+		FRayRopeSegmentTopology::CalculateSegmentLength(Segment),
+		InitialNodeCount,
+		Segment.Nodes.Num());
+
 	// Wrap before movement so newly blocked spans get redirects before any redirect tries to slide.
-	Result.Merge(FRayRopeWrapSolver::WrapSegment(
+	const float PreWrapLength = FRayRopeSegmentTopology::CalculateSegmentLength(Segment);
+	const int32 PreWrapNodeCount = Segment.Nodes.Num();
+	const FRayRopeSolveResult WrapResult = FRayRopeWrapSolver::WrapSegment(
 		SolveSettings.TraceSettings,
 		SolveSettings.NodeBuildSettings,
 		Segment,
-		ReferenceNodes));
+		ReferenceNodes);
+	Result.Merge(WrapResult);
+	RecordPassResult(
+		DebugContext,
+		TEXT("Wrap"),
+		SegmentIndex,
+		WrapResult,
+		PreWrapLength,
+		FRayRopeSegmentTopology::CalculateSegmentLength(Segment),
+		PreWrapNodeCount,
+		Segment.Nodes.Num());
 
 	if (FRayRopeSegmentTopology::HasRedirectNodes(Segment))
 	{
 		CacheReferenceNodes(Segment, ReferenceNodes);
+		const float PreMoveLength = FRayRopeSegmentTopology::CalculateSegmentLength(Segment);
+		const int32 PreMoveNodeCount = Segment.Nodes.Num();
 		const FRayRopeSolveResult MoveResult = FRayRopeMoveSolver::MoveSegment(
 			SolveSettings.TraceSettings,
 			SolveSettings.MoveSettings,
 			SolveSettings.NodeBuildSettings,
 			Segment);
 		Result.Merge(MoveResult);
+		RecordPassResult(
+			DebugContext,
+			TEXT("Move"),
+			SegmentIndex,
+			MoveResult,
+			PreMoveLength,
+			FRayRopeSegmentTopology::CalculateSegmentLength(Segment),
+			PreMoveNodeCount,
+			Segment.Nodes.Num());
+
 		if (MoveResult.DidChangeRope())
 		{
 			if (ReferenceNodes.Num() != Segment.Nodes.Num())
@@ -81,22 +155,55 @@ FRayRopeSolveResult FRayRopeSolvePipeline::SolveSegment(
 				CacheReferenceNodes(Segment, ReferenceNodes);
 			}
 
-			Result.Merge(FRayRopeWrapSolver::WrapSegmentRanges(
+			const float PreRewrapLength = FRayRopeSegmentTopology::CalculateSegmentLength(Segment);
+			const int32 PreRewrapNodeCount = Segment.Nodes.Num();
+			const FRayRopeSolveResult RewrapResult = FRayRopeWrapSolver::WrapSegmentRanges(
 				SolveSettings.TraceSettings,
 				SolveSettings.NodeBuildSettings,
 				Segment,
 				ReferenceNodes,
-				MoveResult.AffectedSpanRanges));
+				MoveResult.AffectedSpanRanges);
+			Result.Merge(RewrapResult);
+			RecordPassResult(
+				DebugContext,
+				TEXT("Rewrap"),
+				SegmentIndex,
+				RewrapResult,
+				PreRewrapLength,
+				FRayRopeSegmentTopology::CalculateSegmentLength(Segment),
+				PreRewrapNodeCount,
+				Segment.Nodes.Num());
 		}
 
-		Result.Merge(FRayRopeRelaxSolver::RelaxSegment(
+		const float PreRelaxLength = FRayRopeSegmentTopology::CalculateSegmentLength(Segment);
+		const int32 PreRelaxNodeCount = Segment.Nodes.Num();
+		const FRayRopeSolveResult RelaxResult = FRayRopeRelaxSolver::RelaxSegment(
 			SolveSettings.TraceSettings,
 			SolveSettings.RelaxSettings,
-			Segment));
+			Segment);
+		Result.Merge(RelaxResult);
+		RecordPassResult(
+			DebugContext,
+			TEXT("Relax"),
+			SegmentIndex,
+			RelaxResult,
+			PreRelaxLength,
+			FRayRopeSegmentTopology::CalculateSegmentLength(Segment),
+			PreRelaxNodeCount,
+			Segment.Nodes.Num());
+	}
+	else if (DebugContext != nullptr)
+	{
+		DebugContext->RecordSolverEvent(
+			TEXT("MoveRelax"),
+			FString::Printf(
+				TEXT("Segment[%d] skipped: no redirect nodes"),
+				SegmentIndex));
 	}
 
 	if (bLogNodeCountChanges && Segment.Nodes.Num() != InitialNodeCount)
 	{
+#if RAYROPE_WITH_DEBUG
 		UE_LOG(
 			LogRayRope,
 			Log,
@@ -104,6 +211,18 @@ FRayRopeSolveResult FRayRopeSolvePipeline::SolveSegment(
 			SegmentIndex,
 			InitialNodeCount,
 			Segment.Nodes.Num());
+#endif
+	}
+
+	if (DebugContext != nullptr && Segment.Nodes.Num() != InitialNodeCount)
+	{
+		DebugContext->RecordSolverEvent(
+			TEXT("Pipeline"),
+			FString::Printf(
+				TEXT("Segment[%d] node count changed: %d -> %d"),
+				SegmentIndex,
+				InitialNodeCount,
+				Segment.Nodes.Num()));
 	}
 
 	return Result;

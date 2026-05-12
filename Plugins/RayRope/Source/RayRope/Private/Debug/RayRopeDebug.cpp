@@ -1,11 +1,16 @@
 #include "RayRopeDebug.h"
 
+#include "Debug/RayRopeDebugConfig.h"
+
+#if RAYROPE_WITH_DEBUG
 #include "DrawDebugHelpers.h"
 #include "GameFramework/Actor.h"
 #include "Topology/RayRopeSegmentTopology.h"
+#endif
 
 namespace
 {
+#if RAYROPE_WITH_DEBUG
 FColor ToDebugColor(const FLinearColor& Color)
 {
 	return Color.ToFColor(true);
@@ -41,6 +46,7 @@ FVector CalculateSegmentCenter(const FRayRopeSegment& Segment)
 
 	return Center / static_cast<float>(Segment.Nodes.Num());
 }
+#endif
 }
 
 void FRayRopeDebug::DrawRope(
@@ -52,7 +58,15 @@ void FRayRopeDebug::DrawRope(
 	float MaxAllowedRopeLength,
 	bool bIsRopeSolving)
 {
+#if RAYROPE_WITH_DEBUG
 	if (World == nullptr)
+	{
+		return;
+	}
+
+	if (!EnumHasAnyFlags(
+		static_cast<ERayRopeDebugDrawFlags>(DebugSettings.DebugDrawFlags),
+		ERayRopeDebugDrawFlags::Topology))
 	{
 		return;
 	}
@@ -190,6 +204,7 @@ void FRayRopeDebug::DrawRope(
 			}
 		}
 	}
+#endif
 }
 
 void FRayRopeDebug::LogRopeState(
@@ -200,6 +215,7 @@ void FRayRopeDebug::LogRopeState(
 	float MaxAllowedRopeLength,
 	bool bIsRopeSolving)
 {
+#if RAYROPE_WITH_DEBUG
 	const TCHAR* SafeContext = Context != nullptr ? Context : TEXT("Unknown");
 	UE_LOG(
 		LogRayRope,
@@ -241,4 +257,5 @@ void FRayRopeDebug::LogRopeState(
 				*Node.AttachedActorOffset.ToCompactString());
 		}
 	}
+#endif
 }

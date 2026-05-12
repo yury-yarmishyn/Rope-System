@@ -1,5 +1,7 @@
 #include "RayRopeWrapSolver.h"
 
+#include "Debug/RayRopeDebugContext.h"
+
 namespace
 {
 void QueueWrapInsertionsForSpan(
@@ -19,6 +21,14 @@ void QueueWrapInsertionsForSpan(
 		ReferenceNodes,
 		NewNodes))
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("Wrap"),
+				FString::Printf(
+					TEXT("Span[%d] produced no wrap nodes"),
+					NodeIndex));
+		}
 		return;
 	}
 
@@ -30,7 +40,35 @@ void QueueWrapInsertionsForSpan(
 		NewNodes,
 		PendingInsertions))
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("Wrap"),
+				FString::Printf(
+					TEXT("Span[%d] rejected %d wrap node(s): duplicate or invalid insert index"),
+					NodeIndex,
+					NewNodes.Num()));
+		}
 		return;
+	}
+
+	if (TraceContext.DebugContext != nullptr)
+	{
+		for (int32 CandidateIndex = 0; CandidateIndex < NewNodes.Num(); ++CandidateIndex)
+		{
+			TraceContext.DebugContext->DrawSolverPoint(
+				ERayRopeDebugDrawFlags::Wrap,
+				NewNodes[CandidateIndex].WorldLocation,
+				TraceContext.DebugContext->GetSettings().DebugCandidateColor,
+				TEXT("WrapCandidate"));
+		}
+		TraceContext.DebugContext->RecordSolverEvent(
+			TEXT("Wrap"),
+			FString::Printf(
+				TEXT("Span[%d] queued %d wrap node(s) at insert index %d"),
+				NodeIndex,
+				NewNodes.Num(),
+				InsertIndex));
 	}
 
 	FRayRopeNodeInsertionQueue::AppendPendingInsertions(
@@ -110,6 +148,15 @@ FRayRopeSolveResult FRayRopeWrapSolver::WrapSegmentRanges(
 		FRayRopeNodeInsertionQueue::ApplyPendingInsertions(Segment, PendingInsertions);
 	if (AppliedInsertionCount > 0)
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("Wrap"),
+				FString::Printf(
+					TEXT("Applied %d wrap insertion(s)"),
+					AppliedInsertionCount));
+		}
+
 		Result.MarkTopologyChanged();
 		for (const FRayRopeSpanIndexRange& Range : MergedRanges)
 		{

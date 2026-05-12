@@ -1,6 +1,7 @@
 #include "RayRopeTrace.h"
 
 #include "CollisionQueryParams.h"
+#include "Debug/RayRopeDebugContext.h"
 #include "Engine/HitResult.h"
 #include "GameFramework/Actor.h"
 
@@ -105,6 +106,16 @@ bool TryTraceBlockingHitWithQueryParams(
 	if (!IsValid(TraceContext.World) ||
 		StartLocation.Equals(EndLocation, KINDA_SMALL_NUMBER))
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("Trace"),
+				FString::Printf(
+					TEXT("Rejected invalid trace Start=%s End=%s World=%s"),
+					*StartLocation.ToCompactString(),
+					*EndLocation.ToCompactString(),
+					IsValid(TraceContext.World) ? TEXT("Valid") : TEXT("Invalid")));
+		}
 		return false;
 	}
 
@@ -117,6 +128,16 @@ bool TryTraceBlockingHitWithQueryParams(
 
 	if (!SurfaceHit.bBlockingHit)
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordTrace(
+				TEXT("Trace"),
+				StartLocation,
+				EndLocation,
+				false,
+				nullptr,
+				TEXT("Clear"));
+		}
 		return false;
 	}
 
@@ -126,6 +147,16 @@ bool TryTraceBlockingHitWithQueryParams(
 
 	if (bForwardHitUsable)
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordTrace(
+				TEXT("Trace"),
+				StartLocation,
+				EndLocation,
+				true,
+				&SurfaceHit,
+				TEXT("ForwardBlock"));
+		}
 		return true;
 	}
 
@@ -150,9 +181,37 @@ bool TryTraceBlockingHitWithQueryParams(
 
 		if (bReverseHitUsable)
 		{
+			if (TraceContext.DebugContext != nullptr)
+			{
+				TraceContext.DebugContext->RecordTrace(
+					TEXT("Trace"),
+					StartLocation,
+					EndLocation,
+					true,
+					&SurfaceHit,
+					TEXT("ForwardInitialHitRejected"));
+				TraceContext.DebugContext->RecordTrace(
+					TEXT("Trace"),
+					EndLocation,
+					StartLocation,
+					true,
+					&FallbackHit,
+					TEXT("ReverseBlock"));
+			}
 			SurfaceHit = FallbackHit;
 			return true;
 		}
+	}
+
+	if (TraceContext.DebugContext != nullptr)
+	{
+		TraceContext.DebugContext->RecordTrace(
+			TEXT("Trace"),
+			StartLocation,
+			EndLocation,
+			false,
+			&SurfaceHit,
+			TEXT("InitialHitRejected"));
 	}
 
 	SurfaceHit = FHitResult();
@@ -187,6 +246,7 @@ FRayRopeTraceContext FRayRopeTrace::MakeTraceContext(
 	TraceContext.World = TraceSettings.World;
 	TraceContext.TraceChannel = TraceSettings.TraceChannel;
 	TraceContext.QueryParams = MoveTemp(QueryParams);
+	TraceContext.DebugContext = TraceSettings.DebugContext;
 	BuildTraceQueryParams(TraceSettings, TraceContext.QueryParams);
 	return TraceContext;
 }

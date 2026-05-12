@@ -6,6 +6,7 @@
 #include "Solvers/RelaxSolver/RayRopeRelaxSolver.h"
 
 class URayRopeComponent;
+struct FRayRopeDebugContext;
 
 /**
  * Aggregated settings consumed by one segment solve.
@@ -30,7 +31,9 @@ struct FRayRopeComponentSolveSettings
  */
 struct FRayRopeComponentSettings
 {
-	static FRayRopeTraceSettings MakeTraceSettings(const URayRopeComponent& Component);
+	static FRayRopeTraceSettings MakeTraceSettings(
+		const URayRopeComponent& Component,
+		FRayRopeDebugContext* DebugContext = nullptr);
 
 	static FRayRopeNodeBuildSettings MakeNodeBuildSettings(const URayRopeComponent& Component);
 
@@ -41,5 +44,7 @@ struct FRayRopeComponentSettings
 	/** Builds runtime length constraint settings from current component state. */
 	static FRayRopePhysicsSettings MakePhysicsSettings(const URayRopeComponent& Component);
 
-	static FRayRopeComponentSolveSettings MakeSolveSettings(const URayRopeComponent& Component);
+	static FRayRopeComponentSolveSettings MakeSolveSettings(
+		const URayRopeComponent& Component,
+		FRayRopeDebugContext* DebugContext = nullptr);
 };

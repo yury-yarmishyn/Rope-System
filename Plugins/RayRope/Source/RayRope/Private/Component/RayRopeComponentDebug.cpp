@@ -1,19 +1,33 @@
 #include "Component/RayRopeComponent.h"
 
+#include "Debug/RayRopeDebugConfig.h"
 #include "Debug/RayRopeDebug.h"
 
 bool URayRopeComponent::IsDebugDrawEnabled() const
 {
-	return RopeDebugSettings.bDebugEnabled && RopeDebugSettings.bDrawDebugRope;
+#if RAYROPE_WITH_DEBUG
+	return RopeDebugSettings.bDebugEnabled &&
+		RopeDebugSettings.bDrawDebugRope &&
+		EnumHasAnyFlags(
+			static_cast<ERayRopeDebugDrawFlags>(RopeDebugSettings.DebugDrawFlags),
+			ERayRopeDebugDrawFlags::Topology);
+#else
+	return false;
+#endif
 }
 
 bool URayRopeComponent::IsDebugLogEnabled() const
 {
+#if RAYROPE_WITH_DEBUG
 	return RopeDebugSettings.bDebugEnabled && RopeDebugSettings.bLogDebugState;
+#else
+	return false;
+#endif
 }
 
 void URayRopeComponent::TickDebug(const TCHAR* Context)
 {
+#if RAYROPE_WITH_DEBUG
 	if (!RopeDebugSettings.bDebugEnabled)
 	{
 		return;
@@ -21,6 +35,7 @@ void URayRopeComponent::TickDebug(const TCHAR* Context)
 
 	DrawDebugRope();
 	LogDebugRopeState(Context);
+#endif
 }
 
 void URayRopeComponent::DrawDebugRope() const
@@ -42,6 +57,7 @@ void URayRopeComponent::DrawDebugRope() const
 
 void URayRopeComponent::LogDebugRopeState(const TCHAR* Context, bool bForce)
 {
+#if RAYROPE_WITH_DEBUG
 	if (!IsDebugLogEnabled())
 	{
 		return;
@@ -64,4 +80,5 @@ void URayRopeComponent::LogDebugRopeState(const TCHAR* Context, bool bForce)
 		CurrentRopeLength,
 		MaxAllowedRopeLength,
 		bIsRopeSolving);
+#endif
 }

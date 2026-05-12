@@ -3,13 +3,15 @@
 #include "Component/RayRopeComponent.h"
 
 FRayRopeTraceSettings FRayRopeComponentSettings::MakeTraceSettings(
-	const URayRopeComponent& Component)
+	const URayRopeComponent& Component,
+	FRayRopeDebugContext* DebugContext)
 {
 	FRayRopeTraceSettings TraceSettings;
 	TraceSettings.World = Component.GetWorld();
 	TraceSettings.OwnerActor = Component.GetOwner();
 	TraceSettings.TraceChannel = Component.TraceChannel;
 	TraceSettings.bTraceComplex = Component.bTraceComplex;
+	TraceSettings.DebugContext = DebugContext;
 	return TraceSettings;
 }
 
@@ -65,10 +67,11 @@ FRayRopePhysicsSettings FRayRopeComponentSettings::MakePhysicsSettings(
 }
 
 FRayRopeComponentSolveSettings FRayRopeComponentSettings::MakeSolveSettings(
-	const URayRopeComponent& Component)
+	const URayRopeComponent& Component,
+	FRayRopeDebugContext* DebugContext)
 {
 	FRayRopeComponentSolveSettings SolveSettings;
-	SolveSettings.TraceSettings = MakeTraceSettings(Component);
+	SolveSettings.TraceSettings = MakeTraceSettings(Component, DebugContext);
 	SolveSettings.NodeBuildSettings = MakeNodeBuildSettings(Component);
 	SolveSettings.MoveSettings = MakeMoveSettings(Component);
 	SolveSettings.RelaxSettings = MakeRelaxSettings(Component);

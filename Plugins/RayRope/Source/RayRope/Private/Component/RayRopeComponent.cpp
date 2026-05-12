@@ -1,5 +1,6 @@
 #include "Component/RayRopeComponent.h"
 
+#include "Debug/RayRopeDebugContext.h"
 #include "Solvers/SolvePipeline/RayRopeSolveTypes.h"
 
 URayRopeComponent::URayRopeComponent()
@@ -16,9 +17,25 @@ void URayRopeComponent::TickComponent(
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+#if RAYROPE_WITH_DEBUG
+	FRayRopeDebugContext DebugContext(
+		GetWorld(),
+		GetOwner(),
+		RopeDebugSettings,
+		TEXT("Tick"));
+	FRayRopeDebugContext* DebugContextPtr = FRayRopeDebugContext::ShouldCreateForSolvers(RopeDebugSettings)
+		? &DebugContext
+		: nullptr;
+#else
+	FRayRopeDebugContext* DebugContextPtr = nullptr;
+#endif
+
 	if (RopeSegments.Num() == 0)
 	{
 		TickDebug(TEXT("TickEmpty"));
+#if RAYROPE_WITH_DEBUG
+		DebugContext.LogFrameSummary(TEXT("TickEmpty"));
+#endif
 		return;
 	}
 
@@ -26,7 +43,7 @@ void URayRopeComponent::TickComponent(
 	{
 		SyncRopeNodes();
 		RefreshRopeLength();
-		if (ApplyRopeRuntimeEffects())
+		if (ApplyRopeRuntimeEffects(DebugContextPtr))
 		{
 			SyncRopeNodes();
 			RefreshRopeLength();
@@ -34,12 +51,15 @@ void URayRopeComponent::TickComponent(
 		}
 
 		TickDebug(TEXT("TickIdle"));
+#if RAYROPE_WITH_DEBUG
+		DebugContext.LogFrameSummary(TEXT("TickIdle"));
+#endif
 		return;
 	}
 
-	const FRayRopeSolveResult SolveResult = SolveRope();
+	const FRayRopeSolveResult SolveResult = SolveRope(DebugContextPtr);
 
-	const bool bAppliedRuntimeEffects = ApplyRopeRuntimeEffects();
+	const bool bAppliedRuntimeEffects = ApplyRopeRuntimeEffects(DebugContextPtr);
 	if (bAppliedRuntimeEffects)
 	{
 		SyncRopeNodes();
@@ -51,4 +71,7 @@ void URayRopeComponent::TickComponent(
 		OnRopeSegmentsUpdated.Broadcast();
 	}
 	TickDebug(TEXT("TickSolve"));
+#if RAYROPE_WITH_DEBUG
+	DebugContext.LogFrameSummary(TEXT("TickSolve"));
+#endif
 }

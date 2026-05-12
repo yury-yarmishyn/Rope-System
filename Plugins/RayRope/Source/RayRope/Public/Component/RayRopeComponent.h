@@ -7,6 +7,7 @@
 
 class AActor;
 struct FRayRopeSolveResult;
+struct FRayRopeDebugContext;
 
 /** Event signature for rope segment update notifications. */
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSegmentsSet);
@@ -250,10 +251,13 @@ protected:
 
 	void SyncRopeNodes();
 	void RefreshRopeLength();
-	FRayRopeSolveResult SolveRope();
-	FRayRopeSolveResult SolveSegment(FRayRopeSegment& Segment, int32 SegmentIndex) const;
+	FRayRopeSolveResult SolveRope(FRayRopeDebugContext* DebugContext = nullptr);
+	FRayRopeSolveResult SolveSegment(
+		FRayRopeSegment& Segment,
+		int32 SegmentIndex,
+		FRayRopeDebugContext* DebugContext = nullptr) const;
 	/** Applies runtime effects such as owner length clamping; returns true when owner movement occurred. */
-	bool ApplyRopeRuntimeEffects();
+	bool ApplyRopeRuntimeEffects(FRayRopeDebugContext* DebugContext = nullptr);
 
 	/** Splits internal anchors into terminal segment anchors after topology-changing solve passes. */
 	void FinalizeSolve();

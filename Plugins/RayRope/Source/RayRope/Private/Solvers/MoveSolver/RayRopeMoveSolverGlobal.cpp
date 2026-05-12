@@ -1,5 +1,6 @@
 #include "RayRopeMoveSolverGlobalInternal.h"
 
+#include "Debug/RayRopeDebugConfig.h"
 #include "Nodes/RayRopeNodeSynchronizer.h"
 #include "Topology/RayRopeSegmentTopology.h"
 
@@ -164,6 +165,7 @@ EGlobalMoveSolveStatus TryMoveSegmentGlobal(
 		OutResult.AddAffectedSpanRange(FirstSpanIndex, LastSpanIndex);
 		bAppliedAnyMove = true;
 
+#if RAYROPE_WITH_DEBUG
 		UE_LOG(
 			LogRayRope,
 			VeryVerbose,
@@ -173,6 +175,7 @@ EGlobalMoveSolveStatus TryMoveSegmentGlobal(
 			CurrentLength,
 			AcceptedLength,
 			States.Num());
+#endif
 	}
 
 	return bAppliedAnyMove

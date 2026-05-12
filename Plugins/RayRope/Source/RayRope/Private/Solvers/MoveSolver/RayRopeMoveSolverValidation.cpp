@@ -1,5 +1,7 @@
 #include "RayRopeMoveSolverInternal.h"
 
+#include "Debug/RayRopeDebugContext.h"
+
 namespace RayRopeMoveSolverPrivate
 {
 namespace
@@ -32,11 +34,34 @@ bool IsReachableMoveTarget(
 {
 	if (!HasValidCandidateGeometry(SolveContext, NodeWindow, CandidatePoint))
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveValidation"),
+				FString::Printf(
+					TEXT("Node[%d] reachable target rejected: invalid geometry Candidate=%s"),
+					NodeWindow.NodeIndex,
+					*CandidatePoint.ToCompactString()));
+		}
 		return false;
 	}
 
 	if (!FRayRopeTrace::IsValidFreePoint(SolveContext.TraceContext, CandidatePoint))
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->DrawSolverPoint(
+				ERayRopeDebugDrawFlags::MoveCandidates,
+				CandidatePoint,
+				SolveContext.TraceContext.DebugContext->GetSettings().DebugBlockedTraceColor,
+				TEXT("OverlapReject"));
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveValidation"),
+				FString::Printf(
+					TEXT("Node[%d] reachable target rejected: overlaps geometry Candidate=%s"),
+					NodeWindow.NodeIndex,
+					*CandidatePoint.ToCompactString()));
+		}
 		return false;
 	}
 
@@ -45,10 +70,18 @@ bool IsReachableMoveTarget(
 		NodeWindow,
 		CandidatePoint))
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveValidation"),
+				FString::Printf(
+					TEXT("Node[%d] reachable target rejected: insufficient length improvement"),
+					NodeWindow.NodeIndex));
+		}
 		return false;
 	}
 
-	return FRayRopeTransitionValidator::IsTransitionNodePathClear(
+	const bool bPathClear = FRayRopeTransitionValidator::IsTransitionNodePathClear(
 		SolveContext.TraceContext,
 		SolveContext.TransitionValidationSettings,
 		FRayRopeNodeTransition::Make(
@@ -56,6 +89,22 @@ bool IsReachableMoveTarget(
 			NodeWindow.CurrentNode,
 			NodeWindow.NextNode,
 			CandidatePoint));
+	if (!bPathClear && SolveContext.TraceContext.DebugContext != nullptr)
+	{
+		SolveContext.TraceContext.DebugContext->DrawSolverLine(
+			ERayRopeDebugDrawFlags::MoveCandidates,
+			NodeWindow.CurrentNode.WorldLocation,
+			CandidatePoint,
+			SolveContext.TraceContext.DebugContext->GetSettings().DebugBlockedTraceColor,
+			TEXT("PathBlocked"));
+		SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+			TEXT("MoveValidation"),
+			FString::Printf(
+				TEXT("Node[%d] reachable target rejected: node path blocked"),
+				NodeWindow.NodeIndex));
+	}
+
+	return bPathClear;
 }
 
 bool IsValidMovePoint(
@@ -65,6 +114,15 @@ bool IsValidMovePoint(
 {
 	if (!HasValidCandidateGeometry(SolveContext, NodeWindow, CandidatePoint))
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveValidation"),
+				FString::Printf(
+					TEXT("Node[%d] move point rejected: invalid geometry Candidate=%s"),
+					NodeWindow.NodeIndex,
+					*CandidatePoint.ToCompactString()));
+		}
 		return false;
 	}
 
@@ -73,10 +131,18 @@ bool IsValidMovePoint(
 		NodeWindow,
 		CandidatePoint))
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveValidation"),
+				FString::Printf(
+					TEXT("Node[%d] move point rejected: insufficient length improvement"),
+					NodeWindow.NodeIndex));
+		}
 		return false;
 	}
 
-	return FRayRopeTransitionValidator::IsNodeTransitionClear(
+	const bool bTransitionClear = FRayRopeTransitionValidator::IsNodeTransitionClear(
 		SolveContext.TraceContext,
 		SolveContext.TransitionValidationSettings,
 		FRayRopeNodeTransition::Make(
@@ -84,6 +150,23 @@ bool IsValidMovePoint(
 			NodeWindow.CurrentNode,
 			NodeWindow.NextNode,
 			CandidatePoint));
+	if (!bTransitionClear && SolveContext.TraceContext.DebugContext != nullptr)
+	{
+		SolveContext.TraceContext.DebugContext->DrawSolverLine(
+			ERayRopeDebugDrawFlags::MoveCandidates,
+			NodeWindow.CurrentNode.WorldLocation,
+			CandidatePoint,
+			SolveContext.TraceContext.DebugContext->GetSettings().DebugBlockedTraceColor,
+			TEXT("TransitionReject"));
+		SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+			TEXT("MoveValidation"),
+			FString::Printf(
+				TEXT("Node[%d] move point rejected: transition blocked Candidate=%s"),
+				NodeWindow.NodeIndex,
+				*CandidatePoint.ToCompactString()));
+	}
+
+	return bTransitionClear;
 }
 
 bool IsMoveImprovementSignificant(

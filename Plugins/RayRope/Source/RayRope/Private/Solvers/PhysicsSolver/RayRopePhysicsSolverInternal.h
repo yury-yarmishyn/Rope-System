@@ -1,9 +1,22 @@
 #pragma once
 
 #include "RayRopePhysicsSolver.h"
+#include "Engine/HitResult.h"
 
 namespace RayRopePhysicsSolverPrivate
 {
+/** Debug data captured around one owner clamp attempt. */
+struct FOwnerClampDebugResult
+{
+	FVector OwnerAnchorLocation = FVector::ZeroVector;
+	FVector AdjacentLocation = FVector::ZeroVector;
+	FVector ActorDelta = FVector::ZeroVector;
+	float ExcessLength = 0.f;
+	float ClampDistance = 0.f;
+	bool bSweepBlocked = false;
+	FHitResult SweepHit;
+};
+
 /** Owner anchor and its in-segment neighbor used by the length clamp. */
 struct FOwnerTerminalNodes
 {
@@ -39,6 +52,7 @@ bool ClampOwnerAnchorToMaxRopeLength(
 	AActor* OwnerActor,
 	const FRayRopePhysicsSettings& PhysicsSettings,
 	const FRayRopeNode& OwnerNode,
-	const FRayRopeNode& AdjacentNode);
+	const FRayRopeNode& AdjacentNode,
+	FOwnerClampDebugResult* OutDebugResult = nullptr);
 }
 

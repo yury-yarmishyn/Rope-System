@@ -2,6 +2,7 @@
 #include "Types/RayRopeTypes.h"
 
 struct FHitResult;
+struct FRayRopeDebugContext;
 
 /**
  * Non-owning view of two adjacent rope nodes.
@@ -64,6 +65,9 @@ struct FRayRopeTraceSettings
 
 	/** Whether rope queries should use complex collision. */
 	bool bTraceComplex = false;
+
+	/** Optional tick-local diagnostics sink. */
+	FRayRopeDebugContext* DebugContext = nullptr;
 };
 
 /**
@@ -79,6 +83,9 @@ struct FRayRopeTraceContext
 
 	/** Query params with the owner and any pass-specific ignored actors already applied. */
 	FCollisionQueryParams QueryParams;
+
+	/** Optional tick-local diagnostics sink. */
+	FRayRopeDebugContext* DebugContext = nullptr;
 };
 
 /**

@@ -1,5 +1,6 @@
 #include "RayRopeMoveSolver.h"
 
+#include "Debug/RayRopeDebugContext.h"
 #include "Nodes/RayRopeNodeSynchronizer.h"
 #include "RayRopeMoveSolverInternal.h"
 
@@ -7,6 +8,27 @@ using namespace RayRopeMoveSolverPrivate;
 
 namespace
 {
+const TCHAR* GetGlobalMoveStatusName(EGlobalMoveSolveStatus Status)
+{
+	switch (Status)
+	{
+	case EGlobalMoveSolveStatus::NotApplicable:
+		return TEXT("NotApplicable");
+
+	case EGlobalMoveSolveStatus::Converged:
+		return TEXT("Converged");
+
+	case EGlobalMoveSolveStatus::Applied:
+		return TEXT("Applied");
+
+	case EGlobalMoveSolveStatus::NoValidStep:
+		return TEXT("NoValidStep");
+
+	default:
+		return TEXT("Unknown");
+	}
+}
+
 FRayRopeSolveResult MoveSegmentLocal(
 	const FMoveSolveContext& SolveContext,
 	FRayRopeSegment& Segment)
@@ -22,6 +44,16 @@ FRayRopeSolveResult MoveSegmentLocal(
 
 	for (int32 MoveIteration = 0; MoveIteration < SolveContext.MaxMoveIterations; ++MoveIteration)
 	{
+		if (SolveContext.TraceContext.DebugContext != nullptr)
+		{
+			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveLocal"),
+				FString::Printf(
+					TEXT("Iteration %d started Nodes=%d"),
+					MoveIteration,
+					Segment.Nodes.Num()));
+		}
+
 		// Alternate sweep direction so redirects are not biased toward the start of the segment.
 		const bool bMoveForward = MoveIteration % 2 == 0;
 		const int32 FirstNodeIndex = bMoveForward ? 1 : Segment.Nodes.Num() - 2;
@@ -50,6 +82,14 @@ FRayRopeSolveResult MoveSegmentLocal(
 				NodeWindow,
 				MoveResult))
 			{
+				if (SolveContext.TraceContext.DebugContext != nullptr)
+				{
+					SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+						TEXT("MoveLocal"),
+						FString::Printf(
+							TEXT("Node[%d] rejected: no effective move"),
+							NodeIndex));
+				}
 				continue;
 			}
 
@@ -64,7 +104,44 @@ FRayRopeSolveResult MoveSegmentLocal(
 				MoveResult,
 				PendingInsertions))
 			{
+				if (SolveContext.TraceContext.DebugContext != nullptr)
+				{
+					SolveContext.TraceContext.DebugContext->DrawSolverPoint(
+						ERayRopeDebugDrawFlags::MoveCandidates,
+						MoveResult.EffectivePoint,
+						SolveContext.TraceContext.DebugContext->GetSettings().DebugBlockedTraceColor,
+						TEXT("MoveInsertReject"));
+					SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+						TEXT("MoveLocal"),
+						FString::Printf(
+							TEXT("Node[%d] rejected: move insertions invalid Target=%s"),
+							NodeIndex,
+							*MoveResult.EffectivePoint.ToCompactString()));
+				}
 				continue;
+			}
+
+			if (SolveContext.TraceContext.DebugContext != nullptr)
+			{
+				SolveContext.TraceContext.DebugContext->DrawSolverLine(
+					ERayRopeDebugDrawFlags::MoveCandidates,
+					CurrentNode.WorldLocation,
+					MoveResult.EffectivePoint,
+					SolveContext.TraceContext.DebugContext->GetSettings().DebugAcceptedColor,
+					TEXT("Move"));
+				SolveContext.TraceContext.DebugContext->DrawSolverPoint(
+					ERayRopeDebugDrawFlags::MoveCandidates,
+					MoveResult.EffectivePoint,
+					SolveContext.TraceContext.DebugContext->GetSettings().DebugAcceptedColor,
+					TEXT("MoveTarget"));
+				SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+					TEXT("MoveLocal"),
+					FString::Printf(
+						TEXT("Node[%d] accepted Target=%s InsertionsBefore=%d InsertionsAfter=%d"),
+						NodeIndex,
+						*MoveResult.EffectivePoint.ToCompactString(),
+						MoveResult.BeforeCurrentNodes.Num(),
+						MoveResult.AfterCurrentNodes.Num()));
 			}
 
 			CurrentNode = MoveTemp(MovedNode);
@@ -92,6 +169,14 @@ FRayRopeSolveResult MoveSegmentLocal(
 
 		if (!bChangedThisIteration && !bHasPendingInsertions)
 		{
+			if (SolveContext.TraceContext.DebugContext != nullptr)
+			{
+				SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+					TEXT("MoveLocal"),
+					FString::Printf(
+						TEXT("Iteration %d converged"),
+						MoveIteration));
+			}
 			break;
 		}
 	}
@@ -123,12 +208,31 @@ FRayRopeSolveResult FRayRopeMoveSolver::MoveSegment(
 			SolveContext,
 			Segment,
 			Result);
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("MoveGlobal"),
+				FString::Printf(
+					TEXT("Status=%s Fallback=%s ResultTopology=%s ResultLocations=%s"),
+					GetGlobalMoveStatusName(GlobalMoveStatus),
+					MoveSettings.bFallbackToLocalMoveSolver ? TEXT("enabled") : TEXT("disabled"),
+					Result.bTopologyChanged ? TEXT("true") : TEXT("false"),
+					Result.bNodeLocationsChanged ? TEXT("true") : TEXT("false")));
+		}
+
 		if (GlobalMoveStatus == EGlobalMoveSolveStatus::Applied ||
 			GlobalMoveStatus == EGlobalMoveSolveStatus::Converged ||
 			!MoveSettings.bFallbackToLocalMoveSolver)
 		{
 			return Result;
 		}
+	}
+
+	if (TraceContext.DebugContext != nullptr)
+	{
+		TraceContext.DebugContext->RecordSolverEvent(
+			TEXT("MoveLocal"),
+			TEXT("Running local fallback"));
 	}
 
 	return MoveSegmentLocal(SolveContext, Segment);

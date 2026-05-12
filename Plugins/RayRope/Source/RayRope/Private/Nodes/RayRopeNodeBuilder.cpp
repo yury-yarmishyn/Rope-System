@@ -1,6 +1,7 @@
 #include "RayRopeNodeBuilder.h"
 
 #include "Geometry/RayRopeSurfaceGeometry.h"
+#include "Debug/RayRopeDebugContext.h"
 #include "Interfaces/RayRopeInterface.h"
 #include "RayRopeNodeSynchronizer.h"
 #include "Topology/RayRopeSegmentTopology.h"
@@ -205,6 +206,18 @@ bool HasInvalidNodeBuilderSpanLocation(const FRayRopeSpan& Span)
 		Span.GetStartLocation().ContainsNaN() ||
 		Span.GetEndLocation().ContainsNaN();
 }
+
+void RecordNodeBuilderEvent(
+	const FRayRopeTraceContext& TraceContext,
+	const FString& Message)
+{
+	if (TraceContext.DebugContext == nullptr)
+	{
+		return;
+	}
+
+	TraceContext.DebugContext->RecordSolverEvent(TEXT("NodeBuilder"), Message);
+}
 }
 
 bool FRayRopeNodeBuilder::BuildNodes(
@@ -226,6 +239,13 @@ bool FRayRopeNodeBuilder::BuildNodes(
 		CurrentSpan,
 		ReferenceSpan))
 	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			FString::Printf(
+				TEXT("Span[%d] rejected: current/reference span pair unavailable CurrentNodes=%d ReferenceNodes=%d"),
+				NodeIndex,
+				CurrentNodes.Num(),
+				ReferenceNodes.Num()));
 		return false;
 	}
 
@@ -249,33 +269,58 @@ bool FRayRopeNodeBuilder::BuildNodesForSpanTransition(
 	if (HasInvalidNodeBuilderSpanLocation(CurrentSpan) ||
 		HasInvalidNodeBuilderSpanLocation(ReferenceSpan))
 	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			TEXT("Rejected: invalid current or reference span location"));
 		return false;
 	}
 
 	FHitResult FrontSurfaceHit;
 	if (!FRayRopeTrace::TryTraceSpan(TraceContext, CurrentSpan, FrontSurfaceHit))
 	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			TEXT("Rejected: current span is clear"));
 		return false;
 	}
 
 	if (HasInvalidNodeBuilderEndpoint(TraceContext, CurrentSpan) ||
 		HasInvalidNodeBuilderEndpoint(TraceContext, ReferenceSpan))
 	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			TEXT("Rejected: current or reference endpoint is invalid/overlapping geometry"));
 		return false;
 	}
 
 	if (TryBuildAnchorNode(FrontSurfaceHit, OutNodes))
 	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			FString::Printf(
+				TEXT("Built anchor node from hit actor %s"),
+				*GetNameSafe(FrontSurfaceHit.GetActor())));
 		return true;
 	}
 
-	return TryBuildRedirectNodes(
+	const bool bBuiltRedirectNodes = TryBuildRedirectNodes(
 		TraceContext,
 		Settings,
 		CurrentSpan,
 		ReferenceSpan,
 		FrontSurfaceHit,
 		OutNodes);
+	if (!bBuiltRedirectNodes)
+	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			FString::Printf(
+				TEXT("Rejected: failed to build redirect from hit actor %s component %s"),
+				*GetNameSafe(FrontSurfaceHit.GetActor()),
+				*GetNameSafe(FrontSurfaceHit.GetComponent())));
+	}
+
+	return bBuiltRedirectNodes;
 }
 
 namespace
@@ -317,6 +362,11 @@ bool TryBuildRedirectNodes(
 		FrontSurfaceHit,
 		Settings.bAllowWrapOnMovableObjects))
 	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			FString::Printf(
+				TEXT("Redirect rejected: hit actor %s is movable/simulating and movable wrapping is disabled"),
+				*GetNameSafe(FrontSurfaceHit.GetActor())));
 		return false;
 	}
 
@@ -329,10 +379,24 @@ bool TryBuildRedirectNodes(
 		FrontSurfaceHit,
 		RedirectInput))
 	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			TEXT("Redirect rejected: could not build boundary or already-blocked redirect input"));
 		return false;
 	}
 
 	AppendRedirectNodes(TraceContext, Settings, RedirectInput, OutNodes);
+	if (TraceContext.DebugContext != nullptr)
+	{
+		for (const FRayRopeNode& Node : OutNodes)
+		{
+			TraceContext.DebugContext->DrawSolverPoint(
+				ERayRopeDebugDrawFlags::Wrap,
+				Node.WorldLocation,
+				TraceContext.DebugContext->GetSettings().DebugCandidateColor,
+				TEXT("Redirect"));
+		}
+	}
 	return OutNodes.Num() > 0;
 }
 
@@ -406,6 +470,9 @@ bool TryBuildBoundaryRedirectInput(
 		BlockedSpan,
 		OutInput.FrontSurfaceHit))
 	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			TEXT("Boundary redirect rejected: no front boundary hit"));
 		return false;
 	}
 
@@ -413,6 +480,11 @@ bool TryBuildBoundaryRedirectInput(
 		OutInput.FrontSurfaceHit,
 		Settings.bAllowWrapOnMovableObjects))
 	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			FString::Printf(
+				TEXT("Boundary redirect rejected: front hit actor %s cannot receive redirect"),
+				*GetNameSafe(OutInput.FrontSurfaceHit.GetActor())));
 		return false;
 	}
 
@@ -445,6 +517,9 @@ bool TryFindBoundaryHit(
 	if (!ClearSpan.IsValid() || !BlockedSpan.IsValid())
 	{
 		SurfaceHit = FHitResult();
+		RecordNodeBuilderEvent(
+			TraceContext,
+			TEXT("Boundary search rejected: invalid clear or blocked span"));
 		return false;
 	}
 
@@ -472,6 +547,11 @@ bool TryFindBoundaryHit(
 		const FRayRopeSpan MidSpan{&MidStartNode, &MidEndNode};
 		if (HasInvalidNodeBuilderEndpoint(TraceContext, MidSpan))
 		{
+			RecordNodeBuilderEvent(
+				TraceContext,
+				FString::Printf(
+					TEXT("Boundary search iteration %d marked blocked: midpoint endpoint invalid"),
+					Iteration));
 			Bounds.MarkBlocked(MidStartNode, MidEndNode);
 			continue;
 		}
@@ -489,6 +569,9 @@ bool TryFindBoundaryHit(
 	if (HasInvalidNodeBuilderEndpoint(TraceContext, LastBlockedSpan))
 	{
 		SurfaceHit = FHitResult();
+		RecordNodeBuilderEvent(
+			TraceContext,
+			TEXT("Boundary search rejected: final blocked span endpoint invalid"));
 		return false;
 	}
 
@@ -537,6 +620,11 @@ bool TryCreateRedirectNode(
 	RedirectNode.WorldLocation = RedirectLocation + RedirectOffset;
 	if (!FRayRopeTrace::IsValidFreePoint(TraceContext, RedirectNode.WorldLocation))
 	{
+		RecordNodeBuilderEvent(
+			TraceContext,
+			FString::Printf(
+				TEXT("Redirect rejected: candidate point overlaps geometry Location=%s"),
+				*RedirectNode.WorldLocation.ToCompactString()));
 		return false;
 	}
 

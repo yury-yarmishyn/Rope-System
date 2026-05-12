@@ -20,15 +20,16 @@ void URayRopeComponent::RefreshRopeLength()
 	CurrentRopeLength = FRayRopeSegmentTopology::CalculateRopeLength(RopeSegments);
 }
 
-bool URayRopeComponent::ApplyRopeRuntimeEffects()
+bool URayRopeComponent::ApplyRopeRuntimeEffects(FRayRopeDebugContext* DebugContext)
 {
 	return FRayRopePhysicsSolver::Solve(
 		GetOwner(),
 		RopeSegments,
-		FRayRopeComponentSettings::MakePhysicsSettings(*this));
+		FRayRopeComponentSettings::MakePhysicsSettings(*this),
+		DebugContext);
 }
 
-FRayRopeSolveResult URayRopeComponent::SolveRope()
+FRayRopeSolveResult URayRopeComponent::SolveRope(FRayRopeDebugContext* DebugContext)
 {
 	FRayRopeSolveResult Result;
 	if (!bIsRopeSolving || RopeSegments.Num() == 0)
@@ -37,7 +38,7 @@ FRayRopeSolveResult URayRopeComponent::SolveRope()
 	}
 
 	const FRayRopeComponentSolveSettings SolveSettings =
-		FRayRopeComponentSettings::MakeSolveSettings(*this);
+		FRayRopeComponentSettings::MakeSolveSettings(*this, DebugContext);
 	const bool bLogNodeCountChanges = IsDebugLogEnabled();
 
 	for (int32 SegmentIndex = 0; SegmentIndex < RopeSegments.Num(); ++SegmentIndex)
@@ -70,11 +71,14 @@ FRayRopeSolveResult URayRopeComponent::SolveRope()
 	return Result;
 }
 
-FRayRopeSolveResult URayRopeComponent::SolveSegment(FRayRopeSegment& Segment, int32 SegmentIndex) const
+FRayRopeSolveResult URayRopeComponent::SolveSegment(
+	FRayRopeSegment& Segment,
+	int32 SegmentIndex,
+	FRayRopeDebugContext* DebugContext) const
 {
 	TArray<FRayRopeNode> ReferenceNodes;
 	return FRayRopeSolvePipeline::SolveSegment(
-		FRayRopeComponentSettings::MakeSolveSettings(*this),
+		FRayRopeComponentSettings::MakeSolveSettings(*this, DebugContext),
 		Segment,
 		SegmentIndex,
 		ReferenceNodes,

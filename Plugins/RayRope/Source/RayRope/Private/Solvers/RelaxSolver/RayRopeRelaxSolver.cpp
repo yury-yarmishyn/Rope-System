@@ -1,5 +1,6 @@
 #include "RayRopeRelaxSolver.h"
 
+#include "Debug/RayRopeDebugContext.h"
 #include "RayRopeRelaxSolverInternal.h"
 
 using namespace RayRopeRelaxSolverPrivate;
@@ -31,6 +32,14 @@ FRayRopeSolveResult FRayRopeRelaxSolver::RelaxSegment(
 		const ERelaxNodeResult RelaxResult = RelaxNode(SolveContext, Segment, NodeIndex);
 		if (RelaxResult == ERelaxNodeResult::Removed)
 		{
+			if (TraceContext.DebugContext != nullptr)
+			{
+				TraceContext.DebugContext->RecordSolverEvent(
+					TEXT("Relax"),
+					FString::Printf(
+						TEXT("Node[%d] removed"),
+						NodeIndex));
+			}
 			Result.MarkTopologyChanged();
 			Result.AddAffectedSpanRange(NodeIndex - 1, NodeIndex);
 			continue;
@@ -38,6 +47,14 @@ FRayRopeSolveResult FRayRopeRelaxSolver::RelaxSegment(
 
 		if (RelaxResult == ERelaxNodeResult::Collapsed)
 		{
+			if (TraceContext.DebugContext != nullptr)
+			{
+				TraceContext.DebugContext->RecordSolverEvent(
+					TEXT("Relax"),
+					FString::Printf(
+						TEXT("Node[%d] collapsed"),
+						NodeIndex));
+			}
 			Result.MarkNodeLocationsChanged();
 			Result.AddAffectedSpanRange(NodeIndex - 1, NodeIndex);
 		}

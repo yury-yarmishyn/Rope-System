@@ -3,6 +3,7 @@
 #include "Types/RayRopeTypes.h"
 
 class AActor;
+struct FRayRopeDebugContext;
 
 /**
  * Runtime length constraint state for the component owner.
@@ -29,5 +30,6 @@ struct FRayRopePhysicsSolver
 	static bool Solve(
 		AActor* OwnerActor,
 		const TArray<FRayRopeSegment>& Segments,
-		const FRayRopePhysicsSettings& PhysicsSettings);
+		const FRayRopePhysicsSettings& PhysicsSettings,
+		FRayRopeDebugContext* DebugContext = nullptr);
 };

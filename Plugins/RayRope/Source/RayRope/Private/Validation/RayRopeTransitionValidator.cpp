@@ -1,5 +1,6 @@
 #include "RayRopeTransitionValidator.h"
 
+#include "Debug/RayRopeDebugContext.h"
 #include "Nodes/RayRopeNodeFactory.h"
 
 namespace
@@ -45,6 +46,20 @@ bool IsTransitionSampleClear(
 		Alpha);
 	if (!FRayRopeTrace::IsValidFreePoint(TraceContext, SampleLocation))
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->DrawSolverPoint(
+				ERayRopeDebugDrawFlags::TransitionValidation,
+				SampleLocation,
+				TraceContext.DebugContext->GetSettings().DebugBlockedTraceColor,
+				TEXT("FanSampleReject"));
+			TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("Transition"),
+				FString::Printf(
+					TEXT("Sample rejected: point overlaps geometry Alpha=%.3f Location=%s"),
+					Alpha,
+					*SampleLocation.ToCompactString()));
+		}
 		return false;
 	}
 
@@ -75,10 +90,23 @@ bool IsTransitionNodePathClearUnchecked(
 		Transition.PrevNode,
 		Transition.NextNode);
 
-	return !FRayRopeTrace::HasBlockingHit(
+	const bool bPathClear = !FRayRopeTrace::HasBlockingHit(
 		MoveTraceContext,
 		Transition.CurrentNode->WorldLocation,
 		Transition.TargetLocation);
+	if (TraceContext.DebugContext != nullptr)
+	{
+		TraceContext.DebugContext->DrawSolverLine(
+			ERayRopeDebugDrawFlags::TransitionValidation,
+			Transition.CurrentNode->WorldLocation,
+			Transition.TargetLocation,
+			bPathClear
+				? TraceContext.DebugContext->GetSettings().DebugSolverGuideColor
+				: TraceContext.DebugContext->GetSettings().DebugBlockedTraceColor,
+			bPathClear ? TEXT("NodePath") : TEXT("NodePathBlocked"));
+	}
+
+	return bPathClear;
 }
 
 bool IsContinuousSpanFanClearUnchecked(
@@ -138,6 +166,14 @@ bool FRayRopeTransitionValidator::IsNodeTransitionClear(
 	if (!IsValidTransition(Transition) ||
 		!FRayRopeTrace::IsValidFreePoint(TraceContext, Transition.TargetLocation))
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("Transition"),
+				FString::Printf(
+					TEXT("Rejected: invalid transition or target overlaps geometry Target=%s"),
+					*Transition.TargetLocation.ToCompactString()));
+		}
 		return false;
 	}
 
@@ -146,6 +182,12 @@ bool FRayRopeTransitionValidator::IsNodeTransitionClear(
 		Settings,
 		Transition))
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("Transition"),
+				TEXT("Rejected: moving node path is blocked"));
+		}
 		return false;
 	}
 
@@ -158,13 +200,27 @@ bool FRayRopeTransitionValidator::IsNodeTransitionClear(
 		CandidateNode,
 		*Transition.NextNode))
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("Transition"),
+				TEXT("Rejected: final adjacent spans are blocked"));
+		}
 		return false;
 	}
 
-	return IsContinuousSpanFanClearUnchecked(
+	const bool bFanClear = IsContinuousSpanFanClearUnchecked(
 		TraceContext,
 		Settings,
 		Transition);
+	if (!bFanClear && TraceContext.DebugContext != nullptr)
+	{
+		TraceContext.DebugContext->RecordSolverEvent(
+			TEXT("Transition"),
+			TEXT("Rejected: continuous span fan is blocked"));
+	}
+
+	return bFanClear;
 }
 
 bool FRayRopeTransitionValidator::IsTransitionNodePathClear(
@@ -174,6 +230,12 @@ bool FRayRopeTransitionValidator::IsTransitionNodePathClear(
 {
 	if (!IsValidTransition(Transition))
 	{
+		if (TraceContext.DebugContext != nullptr)
+		{
+			TraceContext.DebugContext->RecordSolverEvent(
+				TEXT("Transition"),
+				TEXT("Rejected: invalid node path transition"));
+		}
 		return false;
 	}
 

@@ -196,6 +196,10 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver|Global", meta = (ClampMin = "0", UIMin = "0"))
 	int32 MaxGlobalMoveLineSearchSteps = 4;
 
+	/** Number of intermediate alpha samples checked during global batch validation. */
+	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver|Global", meta = (ClampMin = "0", UIMin = "0"))
+	int32 MaxGlobalValidationSamples = 8;
+
 	/** Diagonal regularizer for the global rail-coordinate linear solve. */
 	UPROPERTY(EditAnywhere, Category = "Rope|Move Solver|Global", meta = (ClampMin = "0.0", UIMin = "0.0"))
 	float GlobalMoveDamping = 0.001f;

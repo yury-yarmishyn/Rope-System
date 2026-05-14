@@ -10,12 +10,13 @@ bool IsUsableRail(const FMoveRail& Rail)
 }
 }
 
-void BuildGlobalMoveNodeStates(
+FGlobalMoveStateBuildResult BuildGlobalMoveNodeStates(
 	const FMoveSolveContext& SolveContext,
 	const FRayRopeSegment& Segment,
 	TArray<FGlobalMoveNodeState, TInlineAllocator<32>>& OutStates,
 	TArray<int32, TInlineAllocator<64>>& OutNodeToStateIndex)
 {
+	FGlobalMoveStateBuildResult Result;
 	const int32 NodeCount = Segment.Nodes.Num();
 	OutStates.Reset();
 	OutNodeToStateIndex.Reset();
@@ -28,6 +29,7 @@ void BuildGlobalMoveNodeStates(
 		{
 			continue;
 		}
+		++Result.RedirectCount;
 
 		const FMoveNodeWindow NodeWindow(
 			Segment.Nodes[NodeIndex - 1],
@@ -39,6 +41,7 @@ void BuildGlobalMoveNodeStates(
 		if (!TryBuildMoveRail(SolveContext, NodeWindow, Rail) ||
 			!IsUsableRail(Rail))
 		{
+			Result.bSkippedAnyRedirect = true;
 			continue;
 		}
 
@@ -49,6 +52,9 @@ void BuildGlobalMoveNodeStates(
 		State.Rail.Direction = Rail.Direction.GetSafeNormal();
 		OutNodeToStateIndex[NodeIndex] = OutStates.Add(State);
 	}
+
+	Result.StateCount = OutStates.Num();
+	return Result;
 }
 
 FVector GetNodeLocationAtAlpha(
@@ -70,52 +76,36 @@ FVector GetNodeLocationAtAlpha(
 	return State.StartLocation + State.Rail.Direction * (State.DeltaParameter * Alpha);
 }
 
-void BuildNodeLocationsAtAlpha(
-	const FRayRopeSegment& Segment,
-	TConstArrayView<FGlobalMoveNodeState> States,
-	TConstArrayView<int32> NodeToStateIndex,
-	float Alpha,
-	FGlobalMoveLocationBuffer& OutNodeLocations)
-{
-	OutNodeLocations.Reset(Segment.Nodes.Num());
-	OutNodeLocations.Reserve(Segment.Nodes.Num());
-	for (int32 NodeIndex = 0; NodeIndex < Segment.Nodes.Num(); ++NodeIndex)
-	{
-		OutNodeLocations.Add(GetNodeLocationAtAlpha(
-			Segment,
-			States,
-			NodeToStateIndex,
-			NodeIndex,
-			Alpha));
-	}
-}
-
-float CalculateSegmentLength(TConstArrayView<FVector> NodeLocations)
-{
-	float SegmentLength = 0.f;
-	for (int32 NodeIndex = 1; NodeIndex < NodeLocations.Num(); ++NodeIndex)
-	{
-		SegmentLength += FVector::Dist(
-			NodeLocations[NodeIndex - 1],
-			NodeLocations[NodeIndex]);
-	}
-
-	return SegmentLength;
-}
-
 float CalculateSegmentLengthAtAlpha(
 	const FRayRopeSegment& Segment,
 	TConstArrayView<FGlobalMoveNodeState> States,
 	TConstArrayView<int32> NodeToStateIndex,
 	float Alpha)
 {
-	FGlobalMoveLocationBuffer NodeLocations;
-	BuildNodeLocationsAtAlpha(
+	float SegmentLength = 0.f;
+	if (Segment.Nodes.Num() < 2)
+	{
+		return SegmentLength;
+	}
+
+	FVector PrevLocation = GetNodeLocationAtAlpha(
 		Segment,
 		States,
 		NodeToStateIndex,
-		Alpha,
-		NodeLocations);
-	return CalculateSegmentLength(NodeLocations);
+		0,
+		Alpha);
+	for (int32 NodeIndex = 1; NodeIndex < Segment.Nodes.Num(); ++NodeIndex)
+	{
+		const FVector NextLocation = GetNodeLocationAtAlpha(
+			Segment,
+			States,
+			NodeToStateIndex,
+			NodeIndex,
+			Alpha);
+		SegmentLength += FVector::Dist(PrevLocation, NextLocation);
+		PrevLocation = NextLocation;
+	}
+
+	return SegmentLength;
 }
 }

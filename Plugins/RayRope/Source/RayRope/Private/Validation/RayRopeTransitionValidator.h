@@ -61,6 +61,21 @@ struct FRayRopeTransitionValidator
 		const FRayRopeNodeTransition& Transition);
 
 	/**
+	 * Checks only the two final spans created when CurrentNode is replaced by TargetLocation.
+	 */
+	static bool AreTransitionResultSpansClear(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeNodeTransition& Transition);
+
+	/**
+	 * Checks sampled intermediate span fans after the target, node path, and final spans are known valid.
+	 */
+	static bool IsTransitionSpanFanClear(
+		const FRayRopeTraceContext& TraceContext,
+		const FRayRopeTransitionValidationSettings& Settings,
+		const FRayRopeNodeTransition& Transition);
+
+	/**
 	 * Checks only the direct path swept by the moving node.
 	 *
 	 * Use this for coarse reachability before building extra wrap nodes around blocked final spans.

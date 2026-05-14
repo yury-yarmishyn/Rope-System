@@ -35,13 +35,13 @@ struct FRayRopeMoveSettings
 	/** Enables the batch rail-coordinate solver before falling back to the local move pass. */
 	bool bUseGlobalMoveSolver = true;
 
-	/** Runs the legacy local move pass when the global pass cannot find a valid batch step. */
+	/** Runs the full local move pass when the global pass cannot find a valid batch step. */
 	bool bFallbackToLocalMoveSolver = true;
 
 	/** Number of alternating forward/backward sweeps over redirect nodes. */
 	int32 MaxMoveIterations = 4;
 
-	/** Iteration budget shared by rail hit search, rail optimization, and transition validation. */
+	/** Base iteration budget distributed across move rail search, candidate backtracking, and validation. */
 	int32 MaxEffectivePointSearchIterations = 8;
 
 	/** Maximum number of global rail-coordinate solve iterations per move pass. */
@@ -49,6 +49,9 @@ struct FRayRopeMoveSettings
 
 	/** Maximum number of shared-alpha backtracking attempts for a global batch step. */
 	int32 MaxGlobalMoveLineSearchSteps = 4;
+
+	/** Number of intermediate alpha samples checked during global batch validation. */
+	int32 MaxGlobalValidationSamples = 8;
 
 	/** Positive diagonal regularizer used when solving the global rail-coordinate system. */
 	float GlobalMoveDamping = 0.001f;

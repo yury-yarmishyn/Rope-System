@@ -22,17 +22,23 @@ FMoveSolveContext::FMoveSolveContext(
 	MinMoveDistance = FMath::Max(MoveSettings.MinMoveDistance, KINDA_SMALL_NUMBER);
 	MinLengthImprovement = FMath::Max(MoveSettings.MinLengthImprovement, KINDA_SMALL_NUMBER);
 	PlaneParallelToleranceSquared = FMath::Square(MoveSettings.PlaneParallelTolerance);
-	SurfaceOffset = FMath::Max(MoveSettings.SurfaceOffset, KINDA_SMALL_NUMBER);
+	SurfaceOffset = FMath::Max(MoveSettings.SurfaceOffset, 0.f);
 	GlobalMoveDamping = FMath::Max(MoveSettings.GlobalMoveDamping, KINDA_SMALL_NUMBER);
 	MaxMoveIterations = FMath::Max(0, MoveSettings.MaxMoveIterations);
-	MaxEffectivePointSearchIterations =
+	MaxTopologyRepairIterations = MaxMoveIterations;
+	const int32 EffectivePointSearchIterations =
 		FMath::Max(0, MoveSettings.MaxEffectivePointSearchIterations);
+	MaxRailSurfaceSearchIterations = EffectivePointSearchIterations;
+	MaxRailPointSearchIterations = EffectivePointSearchIterations;
+	MaxCandidateBacktrackIterations = EffectivePointSearchIterations;
+	MaxTransitionValidationIterations = EffectivePointSearchIterations;
+	MaxGlobalValidationSamples = FMath::Max(0, MoveSettings.MaxGlobalValidationSamples);
 	MaxGlobalMoveIterations = FMath::Max(0, MoveSettings.MaxGlobalMoveIterations);
 	MaxGlobalMoveLineSearchSteps = FMath::Max(0, MoveSettings.MaxGlobalMoveLineSearchSteps);
 
 	TransitionValidationSettings.SolverTolerance = GeometryTolerance;
 	TransitionValidationSettings.MaxTransitionValidationIterations =
-		MaxEffectivePointSearchIterations;
+		MaxTransitionValidationIterations;
 }
 
 FMoveNodeWindow::FMoveNodeWindow(
@@ -63,9 +69,24 @@ bool FMoveNodeWindow::IsCurrentPointFree(const FRayRopeTraceContext& TraceContex
 bool TryFindEffectiveMove(
 	const FMoveSolveContext& SolveContext,
 	const FMoveNodeWindow& NodeWindow,
-	FMoveResult& OutResult)
+	FMoveCommand& OutCommand)
 {
-	OutResult = FMoveResult();
+	OutCommand = FMoveCommand();
+
+	const FMoveValidation CurrentSpanValidation = EvaluateCurrentSpans(
+		SolveContext,
+		NodeWindow);
+	if (CurrentSpanValidation.NeedsInsertions())
+	{
+		if (TryBuildMoveCommand(
+				SolveContext,
+				NodeWindow,
+				CurrentSpanValidation,
+				OutCommand))
+		{
+			return true;
+		}
+	}
 
 	FMoveRail Rail;
 	if (!TryBuildMoveRail(
@@ -90,20 +111,12 @@ bool TryFindEffectiveMove(
 		SolveContext.MoveSettings,
 		NodeWindow.CurrentNode.WorldLocation,
 		TargetPoint);
-	if (!TryFindValidEffectivePoint(
+
+	return TryResolveCandidateOnPath(
 		SolveContext,
 		NodeWindow,
 		TargetPoint,
-		OutResult.EffectivePoint))
-	{
-		return TryBuildMoveWithNewNodes(
-			SolveContext,
-			NodeWindow,
-			TargetPoint,
-			OutResult);
-	}
-
-	return true;
+		OutCommand);
 }
 
 float CalculateMoveDistanceSum(

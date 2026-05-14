@@ -1,6 +1,10 @@
 #include "RayRopeMoveSolverGlobalInternal.h"
 
+#include "Debug/RayRopeDebugConfig.h"
+
+#if RAYROPE_WITH_DEBUG
 #include "Debug/RayRopeDebugContext.h"
+#endif
 
 namespace RayRopeMoveSolverPrivate
 {
@@ -17,48 +21,34 @@ float CalculateInitialLineSearchAlpha(
 	return MoveSettings.MaxMoveDistancePerIteration / MaxAbsDelta;
 }
 
-float CalculateMaxMoveDistanceAtAlpha(
-	TConstArrayView<FGlobalMoveNodeState> States,
-	float Alpha)
-{
-	float MaxMoveDistance = 0.f;
-	for (const FGlobalMoveNodeState& State : States)
-	{
-		MaxMoveDistance = FMath::Max(
-			MaxMoveDistance,
-			FMath::Abs(State.DeltaParameter * Alpha));
-	}
-
-	return MaxMoveDistance;
-}
-
 bool TryFindAcceptedAlpha(
 	const FMoveSolveContext& SolveContext,
 	const FRayRopeSegment& Segment,
 	TConstArrayView<FGlobalMoveNodeState> States,
 	TConstArrayView<int32> NodeToStateIndex,
 	float InitialAlpha,
+	float MaxAbsDelta,
 	float CurrentLength,
 	float& OutAcceptedAlpha,
-	int32& OutFirstSpanIndex,
-	int32& OutLastSpanIndex)
+	FRayRopeAffectedSpanRangeBuffer& OutAffectedSpanRanges)
 {
 	OutAcceptedAlpha = 0.f;
-	OutFirstSpanIndex = INDEX_NONE;
-	OutLastSpanIndex = INDEX_NONE;
+	OutAffectedSpanRanges.Reset();
 
-	const int32 MaxLineSearchSteps =
-		FMath::Max(1, SolveContext.MaxGlobalMoveLineSearchSteps);
-	for (int32 LineSearchStep = 0; LineSearchStep < MaxLineSearchSteps; ++LineSearchStep)
+	const int32 MaxLineSearchSteps = SolveContext.MaxGlobalMoveLineSearchSteps;
+	float Alpha = InitialAlpha;
+	for (int32 LineSearchStep = 0;
+		LineSearchStep < MaxLineSearchSteps;
+		++LineSearchStep, Alpha *= 0.5f)
 	{
-		const float Alpha = InitialAlpha * FMath::Pow(0.5f, LineSearchStep);
 		if (Alpha <= KINDA_SMALL_NUMBER)
 		{
 			break;
 		}
 
-		if (CalculateMaxMoveDistanceAtAlpha(States, Alpha) < SolveContext.MinMoveDistance)
+		if (MaxAbsDelta * Alpha < SolveContext.MinMoveDistance)
 		{
+#if RAYROPE_WITH_DEBUG
 			if (SolveContext.TraceContext.DebugContext != nullptr)
 			{
 				SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -68,18 +58,19 @@ bool TryFindAcceptedAlpha(
 						LineSearchStep,
 						Alpha));
 			}
+#endif
 			break;
 		}
 
-		int32 FirstSpanIndex = INDEX_NONE;
-		int32 LastSpanIndex = INDEX_NONE;
-		if (!TryGetAffectedSpanRange(
+		FRayRopeAffectedSpanRangeBuffer AffectedSpanRanges;
+		if (!BuildAffectedSpanRanges(
 			States,
 			Alpha,
 			SolveContext.GeometryTolerance,
-			FirstSpanIndex,
-			LastSpanIndex))
+			Segment.Nodes.Num() - 2,
+			AffectedSpanRanges))
 		{
+#if RAYROPE_WITH_DEBUG
 			if (SolveContext.TraceContext.DebugContext != nullptr)
 			{
 				SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -89,6 +80,7 @@ bool TryFindAcceptedAlpha(
 						LineSearchStep,
 						Alpha));
 			}
+#endif
 			continue;
 		}
 
@@ -100,6 +92,7 @@ bool TryFindAcceptedAlpha(
 		if (!FMath::IsFinite(CandidateLength) ||
 			CandidateLength + SolveContext.MinLengthImprovement >= CurrentLength)
 		{
+#if RAYROPE_WITH_DEBUG
 			if (SolveContext.TraceContext.DebugContext != nullptr)
 			{
 				SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -111,6 +104,7 @@ bool TryFindAcceptedAlpha(
 						CurrentLength,
 						Alpha));
 			}
+#endif
 			continue;
 		}
 
@@ -119,24 +113,25 @@ bool TryFindAcceptedAlpha(
 			Segment,
 			States,
 			NodeToStateIndex,
-			FirstSpanIndex,
-			LastSpanIndex,
+			AffectedSpanRanges,
 			Alpha))
 		{
+#if RAYROPE_WITH_DEBUG
 			if (SolveContext.TraceContext.DebugContext != nullptr)
 			{
 				SolveContext.TraceContext.DebugContext->RecordSolverEvent(
 					TEXT("MoveGlobal"),
 					FString::Printf(
-						TEXT("LineSearch step %d rejected: batch move blocked Alpha=%.3f AffectedSpans=%d..%d"),
+						TEXT("LineSearch step %d rejected: batch move blocked Alpha=%.3f AffectedRanges=%d"),
 						LineSearchStep,
 						Alpha,
-						FirstSpanIndex,
-						LastSpanIndex));
+						AffectedSpanRanges.Num()));
 			}
+#endif
 			continue;
 		}
 
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			for (const FGlobalMoveNodeState& State : States)
@@ -162,18 +157,17 @@ bool TryFindAcceptedAlpha(
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
 				TEXT("MoveGlobal"),
 				FString::Printf(
-					TEXT("LineSearch step %d accepted Alpha=%.3f Length=%.3f->%.3f AffectedSpans=%d..%d"),
+					TEXT("LineSearch step %d accepted Alpha=%.3f Length=%.3f->%.3f AffectedRanges=%d"),
 					LineSearchStep,
 					Alpha,
 					CurrentLength,
 					CandidateLength,
-					FirstSpanIndex,
-					LastSpanIndex));
+					AffectedSpanRanges.Num()));
 		}
+#endif
 
 		OutAcceptedAlpha = Alpha;
-		OutFirstSpanIndex = FirstSpanIndex;
-		OutLastSpanIndex = LastSpanIndex;
+		OutAffectedSpanRanges = MoveTemp(AffectedSpanRanges);
 		return true;
 	}
 

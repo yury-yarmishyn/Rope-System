@@ -124,43 +124,9 @@ void FRayRopeNodeInsertionQueue::AppendPendingInsertions(
 	}
 }
 
-bool FRayRopeNodeInsertionQueue::TryGetInsertionBounds(
-	const FRayRopePendingNodeInsertionBuffer& PendingInsertions,
-	int32& OutFirstInsertIndex,
-	int32& OutLastInsertIndex)
-{
-	OutFirstInsertIndex = INDEX_NONE;
-	OutLastInsertIndex = INDEX_NONE;
-	if (PendingInsertions.Num() == 0)
-	{
-		return false;
-	}
-
-	OutFirstInsertIndex = PendingInsertions[0].Key;
-	OutLastInsertIndex = PendingInsertions[0].Key;
-	for (int32 PendingIndex = 1; PendingIndex < PendingInsertions.Num(); ++PendingIndex)
-	{
-		OutFirstInsertIndex = FMath::Min(
-			OutFirstInsertIndex,
-			PendingInsertions[PendingIndex].Key);
-		OutLastInsertIndex = FMath::Max(
-			OutLastInsertIndex,
-			PendingInsertions[PendingIndex].Key);
-	}
-
-	return true;
-}
-
-int32 FRayRopeNodeInsertionQueue::ApplyPendingInsertions(
-	FRayRopeSegment& Segment,
+void FRayRopeNodeInsertionQueue::SortPendingInsertions(
 	FRayRopePendingNodeInsertionBuffer& PendingInsertions)
 {
-	if (PendingInsertions.Num() == 0)
-	{
-		return 0;
-	}
-
-	const int32 AppliedInsertionCount = PendingInsertions.Num();
 	if (PendingInsertions.Num() > 1)
 	{
 		PendingInsertions.StableSort(
@@ -168,6 +134,23 @@ int32 FRayRopeNodeInsertionQueue::ApplyPendingInsertions(
 			{
 				return Left.Key < Right.Key;
 			});
+	}
+}
+
+int32 FRayRopeNodeInsertionQueue::ApplyPendingInsertions(
+	FRayRopeSegment& Segment,
+	FRayRopePendingNodeInsertionBuffer& PendingInsertions,
+	bool bAlreadySorted)
+{
+	if (PendingInsertions.Num() == 0)
+	{
+		return 0;
+	}
+
+	const int32 AppliedInsertionCount = PendingInsertions.Num();
+	if (!bAlreadySorted)
+	{
+		SortPendingInsertions(PendingInsertions);
 	}
 
 	TArray<FRayRopeNode> OriginalNodes = MoveTemp(Segment.Nodes);

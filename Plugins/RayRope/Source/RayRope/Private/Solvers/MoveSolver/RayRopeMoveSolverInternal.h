@@ -2,6 +2,7 @@
 
 #include "RayRopeMoveSolver.h"
 
+#include "Debug/RayRopeDebugConfig.h"
 #include "Nodes/RayRopeNodeFactory.h"
 #include "Validation/RayRopeTransitionValidator.h"
 
@@ -38,7 +39,12 @@ struct FMoveSolveContext
 	float SurfaceOffset = KINDA_SMALL_NUMBER;
 	float GlobalMoveDamping = KINDA_SMALL_NUMBER;
 	int32 MaxMoveIterations = 0;
-	int32 MaxEffectivePointSearchIterations = 0;
+	int32 MaxTopologyRepairIterations = 0;
+	int32 MaxRailSurfaceSearchIterations = 0;
+	int32 MaxRailPointSearchIterations = 0;
+	int32 MaxCandidateBacktrackIterations = 0;
+	int32 MaxTransitionValidationIterations = 0;
+	int32 MaxGlobalValidationSamples = 0;
 	int32 MaxGlobalMoveIterations = 0;
 	int32 MaxGlobalMoveLineSearchSteps = 0;
 
@@ -53,14 +59,22 @@ enum class EGlobalMoveSolveStatus : uint8
 	/** Segment or settings are outside the batch solver's supported scope. */
 	NotApplicable,
 
-	/** A valid batch solve found no movement above the configured move threshold. */
+	/** A valid batch solve found no movement. */
 	Converged,
 
-	/** At least one batch step was accepted and applied. */
+	/** At least one direct-only batch step was accepted. */
 	Applied,
 
-	/** A batch step was proposed, but validation rejected every candidate alpha. */
-	NoValidStep
+	/** The batch solver failed before it could produce a clean step. */
+	Failed
+};
+
+enum class EMoveDecisionType : uint8
+{
+	None,
+	Move,
+	Insert,
+	MoveAndInsert
 };
 
 /**
@@ -95,25 +109,73 @@ struct FMoveNodeWindow
 	bool IsCurrentPointFree(const FRayRopeTraceContext& TraceContext) const;
 };
 
-/**
- * Result of a redirect move, including any redirects needed around the moved node.
- */
-struct FMoveResult
+struct FMoveValidation
 {
-	/** Final world location for CurrentNode if the move is accepted. */
-	FVector EffectivePoint = FVector::ZeroVector;
+	EMoveDecisionType Type = EMoveDecisionType::None;
+	FVector TargetPoint = FVector::ZeroVector;
+	bool bPrevSpanBlocked = false;
+	bool bNextSpanBlocked = false;
+#if RAYROPE_WITH_DEBUG
+	const TCHAR* DebugReason = TEXT("Rejected");
+#endif
 
-	/** Nodes to insert between PrevNode and the moved CurrentNode. */
+	bool ShouldMoveNode() const
+	{
+		return Type == EMoveDecisionType::Move || Type == EMoveDecisionType::MoveAndInsert;
+	}
+
+	bool NeedsInsertions() const
+	{
+		return Type == EMoveDecisionType::Insert || Type == EMoveDecisionType::MoveAndInsert;
+	}
+
+	bool IsAccepted() const
+	{
+		return Type != EMoveDecisionType::None;
+	}
+};
+
+struct FMovePassResult
+{
+	FRayRopeSolveResult SolveResult;
+	bool bAppliedAnyMove = false;
+	bool bFullyHandled = true;
+	bool bHadFailure = false;
+	bool bNeedsLocalFallback = false;
+};
+
+struct FMoveCommand
+{
+	EMoveDecisionType Type = EMoveDecisionType::None;
+	FVector TargetPoint = FVector::ZeroVector;
 	FRayRopeBuiltNodeBuffer BeforeCurrentNodes;
-
-	/** Nodes to insert between the moved CurrentNode and NextNode. */
 	FRayRopeBuiltNodeBuffer AfterCurrentNodes;
+
+	bool ShouldMoveNode() const
+	{
+		return Type == EMoveDecisionType::Move || Type == EMoveDecisionType::MoveAndInsert;
+	}
+
+	bool NeedsInsertions() const
+	{
+		return Type == EMoveDecisionType::Insert || Type == EMoveDecisionType::MoveAndInsert;
+	}
+
+	bool HasInsertions() const
+	{
+		return BeforeCurrentNodes.Num() > 0 || AfterCurrentNodes.Num() > 0;
+	}
+
+	bool IsAccepted() const
+	{
+		return Type != EMoveDecisionType::None;
+	}
 };
 
 bool TryFindEffectiveMove(
 	const FMoveSolveContext& SolveContext,
 	const FMoveNodeWindow& NodeWindow,
-	FMoveResult& OutResult);
+	FMoveCommand& OutCommand);
 
 /**
  * Builds a rail from the two contact surfaces around CurrentNode.
@@ -133,35 +195,31 @@ bool TryFindEffectivePointOnRail(
 	FVector& OutEffectivePoint);
 
 /**
- * Clamps an ideal target back to the nearest valid reachable point when the ideal move is blocked.
+ * Resolves the ideal target into either a direct move or move/topology insertion.
  */
-bool TryFindValidEffectivePoint(
+bool TryResolveCandidateOnPath(
 	const FMoveSolveContext& SolveContext,
 	const FMoveNodeWindow& NodeWindow,
 	const FVector& TargetPoint,
-	FVector& OutEffectivePoint);
+	FMoveCommand& OutCommand);
 
 /**
- * Builds extra redirects around a reachable target when moving directly would block adjacent spans.
+ * Converts a move validation result into an executable command.
  */
-bool TryBuildMoveWithNewNodes(
+bool TryBuildMoveCommand(
 	const FMoveSolveContext& SolveContext,
 	const FMoveNodeWindow& NodeWindow,
-	const FVector& TargetPoint,
-	FMoveResult& OutResult);
+	const FMoveValidation& Validation,
+	FMoveCommand& OutCommand);
 
 /**
- * Checks coarse move reachability without requiring final adjacent spans to be clear.
+ * Evaluates whether the current adjacent spans already require topology repair.
  */
-bool IsReachableMoveTarget(
+FMoveValidation EvaluateCurrentSpans(
 	const FMoveSolveContext& SolveContext,
-	const FMoveNodeWindow& NodeWindow,
-	const FVector& CandidatePoint);
+	const FMoveNodeWindow& NodeWindow);
 
-/**
- * Validates that a candidate point can replace CurrentNode without adding new redirects.
- */
-bool IsValidMovePoint(
+FMoveValidation EvaluateMoveCandidate(
 	const FMoveSolveContext& SolveContext,
 	const FMoveNodeWindow& NodeWindow,
 	const FVector& CandidatePoint);
@@ -172,8 +230,7 @@ bool IsValidMovePoint(
 bool TryQueueMoveInsertions(
 	const FMoveSolveContext& SolveContext,
 	const FMoveNodeWindow& NodeWindow,
-	const FRayRopeNode& MovedNode,
-	FMoveResult& MoveResult,
+	FMoveCommand& Command,
 	FRayRopePendingNodeInsertionBuffer& PendingInsertions);
 
 /**
@@ -181,10 +238,16 @@ bool TryQueueMoveInsertions(
  *
  * Rails are cached only inside one global iteration and rebuilt after accepted movement.
  */
-EGlobalMoveSolveStatus TryMoveSegmentGlobal(
+struct FGlobalMoveResult
+{
+	EGlobalMoveSolveStatus Status = EGlobalMoveSolveStatus::NotApplicable;
+	FMovePassResult PassResult;
+	bool bSkippedAnyRedirect = false;
+};
+
+FGlobalMoveResult TryMoveSegmentGlobal(
 	const FMoveSolveContext& SolveContext,
-	FRayRopeSegment& Segment,
-	FRayRopeSolveResult& OutResult);
+	FRayRopeSegment& Segment);
 
 float CalculateMoveDistanceSum(
 	const FRayRopeNode& PrevNode,

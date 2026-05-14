@@ -1,6 +1,10 @@
 #include "RayRopeMoveSolverInternal.h"
 
+#include "Debug/RayRopeDebugConfig.h"
+
+#if RAYROPE_WITH_DEBUG
 #include "Debug/RayRopeDebugContext.h"
+#endif
 
 namespace RayRopeMoveSolverPrivate
 {
@@ -36,7 +40,7 @@ float FindBestRailParameter(
 	const float SearchEpsilon = SearchContext.SolveContext.EffectivePointSearchTolerance;
 
 	const int32 MaxRailPointSearchIterations =
-		SearchContext.SolveContext.MaxEffectivePointSearchIterations;
+		SearchContext.SolveContext.MaxRailPointSearchIterations;
 	for (int32 Iteration = 0; Iteration < MaxRailPointSearchIterations; ++Iteration)
 	{
 		if (FMath::Abs(RightRailParameter - LeftRailParameter) <= SearchEpsilon)
@@ -86,6 +90,7 @@ bool TryFindEffectivePointOnRail(
 {
 	if (Rail.Origin.ContainsNaN() || Rail.Direction.IsNearlyZero())
 	{
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -94,6 +99,7 @@ bool TryFindEffectivePointOnRail(
 					TEXT("Node[%d] rejected: invalid rail"),
 					NodeWindow.NodeIndex));
 		}
+#endif
 		return false;
 	}
 
@@ -107,6 +113,7 @@ bool TryFindEffectivePointOnRail(
 		!FMath::IsFinite(PrevRailParameter) ||
 		!FMath::IsFinite(NextRailParameter))
 	{
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -115,6 +122,7 @@ bool TryFindEffectivePointOnRail(
 					TEXT("Node[%d] rejected: non-finite rail parameter"),
 					NodeWindow.NodeIndex));
 		}
+#endif
 		return false;
 	}
 
@@ -139,6 +147,7 @@ bool TryFindEffectivePointOnRail(
 	OutEffectivePoint = GetRailPoint(
 		SearchContext,
 		TargetRailParameter);
+#if RAYROPE_WITH_DEBUG
 	if (SolveContext.TraceContext.DebugContext != nullptr)
 	{
 		SolveContext.TraceContext.DebugContext->DrawSolverPoint(
@@ -151,116 +160,10 @@ bool TryFindEffectivePointOnRail(
 			FString::Printf(
 				TEXT("Node[%d] ideal target Parameter=%.3f Location=%s"),
 				NodeWindow.NodeIndex,
-				TargetRailParameter,
-				*OutEffectivePoint.ToCompactString()));
+			TargetRailParameter,
+			*OutEffectivePoint.ToCompactString()));
 	}
+#endif
 	return !OutEffectivePoint.ContainsNaN();
-}
-
-bool TryFindValidEffectivePoint(
-	const FMoveSolveContext& SolveContext,
-	const FMoveNodeWindow& NodeWindow,
-	const FVector& TargetPoint,
-	FVector& OutEffectivePoint)
-{
-	OutEffectivePoint = FVector::ZeroVector;
-	if (TargetPoint.ContainsNaN())
-	{
-		if (SolveContext.TraceContext.DebugContext != nullptr)
-		{
-			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-				TEXT("MovePointSearch"),
-				FString::Printf(
-					TEXT("Node[%d] rejected: target contains NaN"),
-					NodeWindow.NodeIndex));
-		}
-		return false;
-	}
-
-	if (IsValidMovePoint(
-		SolveContext,
-		NodeWindow,
-		TargetPoint))
-	{
-		OutEffectivePoint = TargetPoint;
-		return true;
-	}
-
-	if (!NodeWindow.IsCurrentPointFree(SolveContext.TraceContext))
-	{
-		if (SolveContext.TraceContext.DebugContext != nullptr)
-		{
-			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-				TEXT("MovePointSearch"),
-				FString::Printf(
-					TEXT("Node[%d] rejected: ideal target invalid and current point is not free"),
-					NodeWindow.NodeIndex));
-		}
-		return false;
-	}
-
-	FVector LastValidPoint = NodeWindow.CurrentNode.WorldLocation;
-	FVector LastInvalidPoint = TargetPoint;
-	bool bFoundValidPoint = false;
-	const int32 MaxSearchIterations =
-		FMath::Max(1, SolveContext.MaxEffectivePointSearchIterations);
-	// Walk back from the ideal target toward the current free point until the transition is valid.
-	for (int32 Iteration = 0; Iteration < MaxSearchIterations; ++Iteration)
-	{
-		const FVector CandidatePoint = (LastValidPoint + LastInvalidPoint) * 0.5f;
-		if (FVector::DistSquared(LastValidPoint, LastInvalidPoint) <=
-			SolveContext.GeometryToleranceSquared)
-		{
-			break;
-		}
-
-		if (IsValidMovePoint(
-			SolveContext,
-			NodeWindow,
-			CandidatePoint))
-		{
-			LastValidPoint = CandidatePoint;
-			bFoundValidPoint = true;
-			continue;
-		}
-
-		LastInvalidPoint = CandidatePoint;
-	}
-
-	if (!bFoundValidPoint ||
-		LastValidPoint.Equals(NodeWindow.CurrentNode.WorldLocation, SolveContext.MinMoveDistance))
-	{
-		if (SolveContext.TraceContext.DebugContext != nullptr)
-		{
-			SolveContext.TraceContext.DebugContext->DrawSolverPoint(
-				ERayRopeDebugDrawFlags::MoveCandidates,
-				TargetPoint,
-				SolveContext.TraceContext.DebugContext->GetSettings().DebugBlockedTraceColor,
-				TEXT("MoveReject"));
-			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-				TEXT("MovePointSearch"),
-				FString::Printf(
-					TEXT("Node[%d] rejected: no valid backtracked target"),
-					NodeWindow.NodeIndex));
-		}
-		return false;
-	}
-
-	OutEffectivePoint = LastValidPoint;
-	if (SolveContext.TraceContext.DebugContext != nullptr)
-	{
-		SolveContext.TraceContext.DebugContext->DrawSolverPoint(
-			ERayRopeDebugDrawFlags::MoveCandidates,
-			OutEffectivePoint,
-			SolveContext.TraceContext.DebugContext->GetSettings().DebugAcceptedColor,
-			TEXT("BacktrackedMove"));
-		SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-			TEXT("MovePointSearch"),
-			FString::Printf(
-				TEXT("Node[%d] accepted backtracked target Location=%s"),
-				NodeWindow.NodeIndex,
-				*OutEffectivePoint.ToCompactString()));
-	}
-	return true;
 }
 }

@@ -7,7 +7,6 @@ namespace
 bool AreAffectedNodesFree(
 	const FMoveSolveContext& SolveContext,
 	TConstArrayView<FGlobalMoveNodeState> States,
-	TConstArrayView<FVector> NodeLocations,
 	float Alpha)
 {
 	for (const FGlobalMoveNodeState& State : States)
@@ -17,10 +16,12 @@ bool AreAffectedNodesFree(
 			continue;
 		}
 
-		if (!IsValidViewIndex(NodeLocations, State.NodeIndex) ||
+		const FVector NodeLocation =
+			State.StartLocation + State.Rail.Direction * (State.DeltaParameter * Alpha);
+		if (NodeLocation.ContainsNaN() ||
 			!FRayRopeTrace::IsValidFreePoint(
 				SolveContext.TraceContext,
-				NodeLocations[State.NodeIndex]))
+				NodeLocation))
 		{
 			return false;
 		}
@@ -29,122 +30,117 @@ bool AreAffectedNodesFree(
 	return true;
 }
 
-bool AreAffectedSpansSeparated(
-	const FMoveSolveContext& SolveContext,
+bool TryGetSpanLocationsAtAlpha(
 	const FRayRopeSegment& Segment,
-	TConstArrayView<FVector> NodeLocations,
-	int32 FirstSpanIndex,
-	int32 LastSpanIndex)
+	TConstArrayView<FGlobalMoveNodeState> States,
+	TConstArrayView<int32> NodeToStateIndex,
+	int32 SpanIndex,
+	float Alpha,
+	FVector& OutStartLocation,
+	FVector& OutEndLocation)
 {
-	const int32 MaxSpanIndex = Segment.Nodes.Num() - 2;
-	for (int32 SpanIndex = FMath::Max(0, FirstSpanIndex);
-		SpanIndex <= FMath::Min(MaxSpanIndex, LastSpanIndex);
-		++SpanIndex)
-	{
-		if (!IsValidViewIndex(NodeLocations, SpanIndex) ||
-			!IsValidViewIndex(NodeLocations, SpanIndex + 1))
-		{
-			return false;
-		}
-
-		const FVector& StartLocation = NodeLocations[SpanIndex];
-		const FVector& EndLocation = NodeLocations[SpanIndex + 1];
-
-		if (StartLocation.ContainsNaN() ||
-			EndLocation.ContainsNaN() ||
-			FVector::DistSquared(StartLocation, EndLocation) <= SolveContext.MinNodeSeparationSquared)
-		{
-			return false;
-		}
-	}
-
-	return true;
-}
-
-bool IsSpanClear(
-	const FMoveSolveContext& SolveContext,
-	const FRayRopeSegment& Segment,
-	TConstArrayView<FVector> NodeLocations,
-	int32 SpanIndex)
-{
-	if (!IsValidViewIndex(NodeLocations, SpanIndex) ||
-		!IsValidViewIndex(NodeLocations, SpanIndex + 1))
+	if (!Segment.Nodes.IsValidIndex(SpanIndex) ||
+		!Segment.Nodes.IsValidIndex(SpanIndex + 1))
 	{
 		return false;
 	}
 
-	FRayRopeNode StartNode = Segment.Nodes[SpanIndex];
-	FRayRopeNode EndNode = Segment.Nodes[SpanIndex + 1];
-	StartNode.WorldLocation = NodeLocations[SpanIndex];
-	EndNode.WorldLocation = NodeLocations[SpanIndex + 1];
-
-	const FRayRopeSpan Span{&StartNode, &EndNode};
-	return !FRayRopeTrace::HasBlockingSpanHit(SolveContext.TraceContext, Span);
+	OutStartLocation = GetNodeLocationAtAlpha(
+		Segment,
+		States,
+		NodeToStateIndex,
+		SpanIndex,
+		Alpha);
+	OutEndLocation = GetNodeLocationAtAlpha(
+		Segment,
+		States,
+		NodeToStateIndex,
+		SpanIndex + 1,
+		Alpha);
+	return !OutStartLocation.ContainsNaN() && !OutEndLocation.ContainsNaN();
 }
 
-bool AreAffectedSpansClear(
+bool AreAffectedSpansValid(
 	const FMoveSolveContext& SolveContext,
 	const FRayRopeSegment& Segment,
-	TConstArrayView<FVector> NodeLocations,
-	int32 FirstSpanIndex,
-	int32 LastSpanIndex)
+	TConstArrayView<FGlobalMoveNodeState> States,
+	TConstArrayView<int32> NodeToStateIndex,
+	TConstArrayView<FRayRopeSpanIndexRange> AffectedSpanRanges,
+	float Alpha)
 {
 	const int32 MaxSpanIndex = Segment.Nodes.Num() - 2;
-	for (int32 SpanIndex = FMath::Max(0, FirstSpanIndex);
-		SpanIndex <= FMath::Min(MaxSpanIndex, LastSpanIndex);
-		++SpanIndex)
+	for (const FRayRopeSpanIndexRange& Range : AffectedSpanRanges)
 	{
-		if (!IsSpanClear(
-			SolveContext,
-			Segment,
-			NodeLocations,
-			SpanIndex))
+		for (int32 SpanIndex = FMath::Max(0, Range.FirstSpanIndex);
+			SpanIndex <= FMath::Min(MaxSpanIndex, Range.LastSpanIndex);
+			++SpanIndex)
 		{
-			return false;
+			FVector StartLocation = FVector::ZeroVector;
+			FVector EndLocation = FVector::ZeroVector;
+			if (!TryGetSpanLocationsAtAlpha(
+					Segment,
+					States,
+					NodeToStateIndex,
+					SpanIndex,
+					Alpha,
+					StartLocation,
+					EndLocation))
+			{
+				return false;
+			}
+
+			if (FVector::DistSquared(StartLocation, EndLocation) <=
+				SolveContext.MinNodeSeparationSquared)
+			{
+				return false;
+			}
+
+			FRayRopeNode StartNode = Segment.Nodes[SpanIndex];
+			FRayRopeNode EndNode = Segment.Nodes[SpanIndex + 1];
+			StartNode.WorldLocation = StartLocation;
+			EndNode.WorldLocation = EndLocation;
+
+			const FRayRopeSpan Span{&StartNode, &EndNode};
+			if (FRayRopeTrace::HasBlockingSpanHit(SolveContext.TraceContext, Span))
+			{
+				return false;
+			}
 		}
 	}
 
 	return true;
 }
 
-bool IsBatchMoveClearForLocations(
+bool IsBatchMoveClearForAlpha(
 	const FMoveSolveContext& SolveContext,
 	const FRayRopeSegment& Segment,
 	TConstArrayView<FGlobalMoveNodeState> States,
-	TConstArrayView<FVector> NodeLocations,
-	int32 FirstSpanIndex,
-	int32 LastSpanIndex,
+	TConstArrayView<int32> NodeToStateIndex,
+	TConstArrayView<FRayRopeSpanIndexRange> AffectedSpanRanges,
 	float Alpha)
 {
 	return AreAffectedNodesFree(
 			SolveContext,
 			States,
-			NodeLocations,
 			Alpha) &&
-		AreAffectedSpansSeparated(
+		AreAffectedSpansValid(
 			SolveContext,
 			Segment,
-			NodeLocations,
-			FirstSpanIndex,
-			LastSpanIndex) &&
-		AreAffectedSpansClear(
-			SolveContext,
-			Segment,
-			NodeLocations,
-			FirstSpanIndex,
-			LastSpanIndex);
+			States,
+			NodeToStateIndex,
+			AffectedSpanRanges,
+			Alpha);
 }
 }
 
-bool TryGetAffectedSpanRange(
+bool BuildAffectedSpanRanges(
 	TConstArrayView<FGlobalMoveNodeState> States,
 	float Alpha,
 	float MoveThreshold,
-	int32& OutFirstSpanIndex,
-	int32& OutLastSpanIndex)
+	int32 MaxSpanIndex,
+	FRayRopeAffectedSpanRangeBuffer& OutRanges)
 {
-	OutFirstSpanIndex = INDEX_NONE;
-	OutLastSpanIndex = INDEX_NONE;
+	OutRanges.Reset();
 
 	for (const FGlobalMoveNodeState& State : States)
 	{
@@ -153,17 +149,29 @@ bool TryGetAffectedSpanRange(
 			continue;
 		}
 
-		const int32 FirstSpanIndex = State.NodeIndex - 1;
-		const int32 LastSpanIndex = State.NodeIndex;
-		OutFirstSpanIndex = OutFirstSpanIndex == INDEX_NONE
-			? FirstSpanIndex
-			: FMath::Min(OutFirstSpanIndex, FirstSpanIndex);
-		OutLastSpanIndex = OutLastSpanIndex == INDEX_NONE
-			? LastSpanIndex
-			: FMath::Max(OutLastSpanIndex, LastSpanIndex);
+		FRayRopeSpanIndexRange Range;
+		Range.FirstSpanIndex = State.NodeIndex - 1;
+		Range.LastSpanIndex = State.NodeIndex;
+		FRayRopeSpanIndexRange ClampedRange;
+		if (FRayRopeSpanIndexRangeUtils::TryClampRange(
+				Range,
+				MaxSpanIndex,
+				ClampedRange))
+		{
+			if (OutRanges.Num() > 0 &&
+				ClampedRange.FirstSpanIndex <= OutRanges.Last().LastSpanIndex + 1)
+			{
+				OutRanges.Last().LastSpanIndex = FMath::Max(
+					OutRanges.Last().LastSpanIndex,
+					ClampedRange.LastSpanIndex);
+				continue;
+			}
+
+			OutRanges.Add(ClampedRange);
+		}
 	}
 
-	return OutFirstSpanIndex != INDEX_NONE && OutFirstSpanIndex <= OutLastSpanIndex;
+	return OutRanges.Num() > 0;
 }
 
 bool IsBatchMoveClearAtAlpha(
@@ -171,47 +179,36 @@ bool IsBatchMoveClearAtAlpha(
 	const FRayRopeSegment& Segment,
 	TConstArrayView<FGlobalMoveNodeState> States,
 	TConstArrayView<int32> NodeToStateIndex,
-	int32 FirstSpanIndex,
-	int32 LastSpanIndex,
+	TConstArrayView<FRayRopeSpanIndexRange> AffectedSpanRanges,
 	float Alpha)
 {
-	FGlobalMoveLocationBuffer NodeLocations;
-	BuildNodeLocationsAtAlpha(
-		Segment,
-		States,
-		NodeToStateIndex,
-		Alpha,
-		NodeLocations);
-	if (!IsBatchMoveClearForLocations(
+	if (AffectedSpanRanges.Num() == 0)
+	{
+		return false;
+	}
+
+	if (!IsBatchMoveClearForAlpha(
 		SolveContext,
 		Segment,
 		States,
-		NodeLocations,
-		FirstSpanIndex,
-		LastSpanIndex,
+		NodeToStateIndex,
+		AffectedSpanRanges,
 		Alpha))
 	{
 		return false;
 	}
 
-	const int32 SampleCount = SolveContext.MaxEffectivePointSearchIterations;
+	const int32 SampleCount = SolveContext.MaxGlobalValidationSamples;
 	for (int32 SampleIndex = 1; SampleIndex <= SampleCount; ++SampleIndex)
 	{
 		const float SampleAlpha = Alpha * (static_cast<float>(SampleIndex) /
 			static_cast<float>(SampleCount + 1));
-		BuildNodeLocationsAtAlpha(
-			Segment,
-			States,
-			NodeToStateIndex,
-			SampleAlpha,
-			NodeLocations);
-		if (!IsBatchMoveClearForLocations(
+		if (!IsBatchMoveClearForAlpha(
 			SolveContext,
 			Segment,
 			States,
-			NodeLocations,
-			FirstSpanIndex,
-			LastSpanIndex,
+			NodeToStateIndex,
+			AffectedSpanRanges,
 			SampleAlpha))
 		{
 			return false;

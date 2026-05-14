@@ -1,11 +1,23 @@
 #include "RayRopeMoveSolverInternal.h"
 
+#include "Debug/RayRopeDebugConfig.h"
+
+#if RAYROPE_WITH_DEBUG
 #include "Debug/RayRopeDebugContext.h"
+#endif
 
 namespace RayRopeMoveSolverPrivate
 {
 namespace
 {
+#if RAYROPE_WITH_DEBUG
+#define RAYROPE_MAKE_MOVE_VALIDATION(Type, TargetPoint, Reason) \
+	MakeMoveValidation(Type, TargetPoint, Reason)
+#else
+#define RAYROPE_MAKE_MOVE_VALIDATION(Type, TargetPoint, Reason) \
+	MakeMoveValidation(Type, TargetPoint)
+#endif
+
 bool IsCandidateSeparatedFromNeighbors(
 	const FMoveSolveContext& SolveContext,
 	const FMoveNodeWindow& NodeWindow,
@@ -25,148 +37,208 @@ bool HasValidCandidateGeometry(
 	return !CandidatePoint.ContainsNaN() &&
 		IsCandidateSeparatedFromNeighbors(SolveContext, NodeWindow, CandidatePoint);
 }
+
+FMoveValidation MakeMoveValidation(
+	EMoveDecisionType Type,
+	const FVector& TargetPoint
+#if RAYROPE_WITH_DEBUG
+	,
+	const TCHAR* DebugReason
+#endif
+)
+{
+	FMoveValidation Validation;
+	Validation.Type = Type;
+	Validation.TargetPoint = TargetPoint;
+#if RAYROPE_WITH_DEBUG
+	Validation.DebugReason = DebugReason;
+#endif
+	return Validation;
 }
 
-bool IsReachableMoveTarget(
+void RecordCandidateEvaluation(
+	const FMoveSolveContext& SolveContext,
+	const FMoveNodeWindow& NodeWindow,
+	const FMoveValidation& Validation)
+{
+#if RAYROPE_WITH_DEBUG
+	if (SolveContext.TraceContext.DebugContext == nullptr)
+	{
+		return;
+	}
+
+	const TCHAR* ActionName = TEXT("Reject");
+	if (Validation.Type == EMoveDecisionType::Move)
+	{
+		ActionName = TEXT("Move");
+	}
+	else if (Validation.Type == EMoveDecisionType::Insert)
+	{
+		ActionName = TEXT("Insert");
+	}
+	else if (Validation.Type == EMoveDecisionType::MoveAndInsert)
+	{
+		ActionName = TEXT("MoveAndInsert");
+	}
+
+	SolveContext.TraceContext.DebugContext->RecordSolverEvent(
+		TEXT("MoveValidation"),
+		FString::Printf(
+			TEXT("Node[%d] %s Candidate=%s PrevBlocked=%s NextBlocked=%s Reason=%s"),
+			NodeWindow.NodeIndex,
+			ActionName,
+			*Validation.TargetPoint.ToCompactString(),
+			Validation.bPrevSpanBlocked ? TEXT("true") : TEXT("false"),
+			Validation.bNextSpanBlocked ? TEXT("true") : TEXT("false"),
+			Validation.DebugReason));
+#endif
+}
+
+void SetResultSpanBlocks(
+	const FMoveSolveContext& SolveContext,
+	const FMoveNodeWindow& NodeWindow,
+	const FVector& CandidatePoint,
+	FMoveValidation& Validation)
+{
+	const FRayRopeNode CandidateNode = FRayRopeNodeFactory::CreateNodeAtLocation(
+		NodeWindow.CurrentNode,
+		CandidatePoint);
+	const FRayRopeSpan PrevCandidateSpan{&NodeWindow.PrevNode, &CandidateNode};
+	const FRayRopeSpan CandidateNextSpan{&CandidateNode, &NodeWindow.NextNode};
+	Validation.bPrevSpanBlocked =
+		FRayRopeTrace::HasBlockingSpanHit(SolveContext.TraceContext, PrevCandidateSpan);
+	Validation.bNextSpanBlocked =
+		FRayRopeTrace::HasBlockingSpanHit(SolveContext.TraceContext, CandidateNextSpan);
+}
+
+FMoveValidation FinishValidation(
+	const FMoveSolveContext& SolveContext,
+	const FMoveNodeWindow& NodeWindow,
+	FMoveValidation Validation)
+{
+	RecordCandidateEvaluation(SolveContext, NodeWindow, Validation);
+	return Validation;
+}
+}
+
+FMoveValidation EvaluateCurrentSpans(
+	const FMoveSolveContext& SolveContext,
+	const FMoveNodeWindow& NodeWindow)
+{
+	FMoveValidation Validation = RAYROPE_MAKE_MOVE_VALIDATION(
+		EMoveDecisionType::None,
+		NodeWindow.CurrentNode.WorldLocation,
+		TEXT("Current spans are clear"));
+
+	const FRayRopeSpan PrevCurrentSpan{&NodeWindow.PrevNode, &NodeWindow.CurrentNode};
+	const FRayRopeSpan CurrentNextSpan{&NodeWindow.CurrentNode, &NodeWindow.NextNode};
+	Validation.bPrevSpanBlocked =
+		FRayRopeTrace::HasBlockingSpanHit(SolveContext.TraceContext, PrevCurrentSpan);
+	Validation.bNextSpanBlocked =
+		FRayRopeTrace::HasBlockingSpanHit(SolveContext.TraceContext, CurrentNextSpan);
+
+	if (Validation.bPrevSpanBlocked || Validation.bNextSpanBlocked)
+	{
+		Validation.Type = EMoveDecisionType::Insert;
+#if RAYROPE_WITH_DEBUG
+		Validation.DebugReason = TEXT("Current spans are blocked");
+#endif
+	}
+
+	return FinishValidation(SolveContext, NodeWindow, Validation);
+}
+
+FMoveValidation EvaluateMoveCandidate(
 	const FMoveSolveContext& SolveContext,
 	const FMoveNodeWindow& NodeWindow,
 	const FVector& CandidatePoint)
 {
 	if (!HasValidCandidateGeometry(SolveContext, NodeWindow, CandidatePoint))
 	{
-		if (SolveContext.TraceContext.DebugContext != nullptr)
-		{
-			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-				TEXT("MoveValidation"),
-				FString::Printf(
-					TEXT("Node[%d] reachable target rejected: invalid geometry Candidate=%s"),
-					NodeWindow.NodeIndex,
-					*CandidatePoint.ToCompactString()));
-		}
-		return false;
+		return FinishValidation(
+			SolveContext,
+			NodeWindow,
+			RAYROPE_MAKE_MOVE_VALIDATION(
+				EMoveDecisionType::None,
+				CandidatePoint,
+				TEXT("Invalid geometry")));
+	}
+
+	if (!IsMoveImprovementSignificant(
+		SolveContext,
+		NodeWindow,
+		CandidatePoint))
+	{
+		return FinishValidation(
+			SolveContext,
+			NodeWindow,
+			RAYROPE_MAKE_MOVE_VALIDATION(
+				EMoveDecisionType::None,
+				CandidatePoint,
+				TEXT("Insufficient length improvement")));
 	}
 
 	if (!FRayRopeTrace::IsValidFreePoint(SolveContext.TraceContext, CandidatePoint))
 	{
-		if (SolveContext.TraceContext.DebugContext != nullptr)
-		{
-			SolveContext.TraceContext.DebugContext->DrawSolverPoint(
-				ERayRopeDebugDrawFlags::MoveCandidates,
+		return FinishValidation(
+			SolveContext,
+			NodeWindow,
+			RAYROPE_MAKE_MOVE_VALIDATION(
+				EMoveDecisionType::None,
 				CandidatePoint,
-				SolveContext.TraceContext.DebugContext->GetSettings().DebugBlockedTraceColor,
-				TEXT("OverlapReject"));
-			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-				TEXT("MoveValidation"),
-				FString::Printf(
-					TEXT("Node[%d] reachable target rejected: overlaps geometry Candidate=%s"),
-					NodeWindow.NodeIndex,
-					*CandidatePoint.ToCompactString()));
-		}
-		return false;
+				TEXT("Target overlaps geometry")));
 	}
 
-	if (!IsMoveImprovementSignificant(
-		SolveContext,
-		NodeWindow,
-		CandidatePoint))
-	{
-		if (SolveContext.TraceContext.DebugContext != nullptr)
-		{
-			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-				TEXT("MoveValidation"),
-				FString::Printf(
-					TEXT("Node[%d] reachable target rejected: insufficient length improvement"),
-					NodeWindow.NodeIndex));
-		}
-		return false;
-	}
+	const FRayRopeNodeTransition Transition = FRayRopeNodeTransition::Make(
+		NodeWindow.PrevNode,
+		NodeWindow.CurrentNode,
+		NodeWindow.NextNode,
+		CandidatePoint);
 
-	const bool bPathClear = FRayRopeTransitionValidator::IsTransitionNodePathClear(
+	const bool bNodePathClear = FRayRopeTransitionValidator::IsTransitionNodePathClear(
 		SolveContext.TraceContext,
 		SolveContext.TransitionValidationSettings,
-		FRayRopeNodeTransition::Make(
-			NodeWindow.PrevNode,
-			NodeWindow.CurrentNode,
-			NodeWindow.NextNode,
-			CandidatePoint));
-	if (!bPathClear && SolveContext.TraceContext.DebugContext != nullptr)
+		Transition);
+	if (!bNodePathClear)
 	{
-		SolveContext.TraceContext.DebugContext->DrawSolverLine(
-			ERayRopeDebugDrawFlags::MoveCandidates,
-			NodeWindow.CurrentNode.WorldLocation,
-			CandidatePoint,
-			SolveContext.TraceContext.DebugContext->GetSettings().DebugBlockedTraceColor,
-			TEXT("PathBlocked"));
-		SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-			TEXT("MoveValidation"),
-			FString::Printf(
-				TEXT("Node[%d] reachable target rejected: node path blocked"),
-				NodeWindow.NodeIndex));
+		return FinishValidation(
+			SolveContext,
+			NodeWindow,
+			RAYROPE_MAKE_MOVE_VALIDATION(
+				EMoveDecisionType::None,
+				CandidatePoint,
+				TEXT("Node path blocked")));
 	}
 
-	return bPathClear;
-}
-
-bool IsValidMovePoint(
-	const FMoveSolveContext& SolveContext,
-	const FMoveNodeWindow& NodeWindow,
-	const FVector& CandidatePoint)
-{
-	if (!HasValidCandidateGeometry(SolveContext, NodeWindow, CandidatePoint))
+	FMoveValidation Validation = RAYROPE_MAKE_MOVE_VALIDATION(
+		EMoveDecisionType::Move,
+		CandidatePoint,
+		TEXT("Clear direct move"));
+	SetResultSpanBlocks(SolveContext, NodeWindow, CandidatePoint, Validation);
+	if (Validation.bPrevSpanBlocked || Validation.bNextSpanBlocked)
 	{
-		if (SolveContext.TraceContext.DebugContext != nullptr)
-		{
-			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-				TEXT("MoveValidation"),
-				FString::Printf(
-					TEXT("Node[%d] move point rejected: invalid geometry Candidate=%s"),
-					NodeWindow.NodeIndex,
-					*CandidatePoint.ToCompactString()));
-		}
-		return false;
+		Validation.Type = EMoveDecisionType::MoveAndInsert;
+#if RAYROPE_WITH_DEBUG
+		Validation.DebugReason = TEXT("Final spans are blocked");
+#endif
+		return FinishValidation(SolveContext, NodeWindow, Validation);
 	}
 
-	if (!IsMoveImprovementSignificant(
-		SolveContext,
-		NodeWindow,
-		CandidatePoint))
-	{
-		if (SolveContext.TraceContext.DebugContext != nullptr)
-		{
-			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-				TEXT("MoveValidation"),
-				FString::Printf(
-					TEXT("Node[%d] move point rejected: insufficient length improvement"),
-					NodeWindow.NodeIndex));
-		}
-		return false;
-	}
-
-	const bool bTransitionClear = FRayRopeTransitionValidator::IsNodeTransitionClear(
+	if (!FRayRopeTransitionValidator::IsTransitionSpanFanClear(
 		SolveContext.TraceContext,
 		SolveContext.TransitionValidationSettings,
-		FRayRopeNodeTransition::Make(
-			NodeWindow.PrevNode,
-			NodeWindow.CurrentNode,
-			NodeWindow.NextNode,
-			CandidatePoint));
-	if (!bTransitionClear && SolveContext.TraceContext.DebugContext != nullptr)
+		Transition))
 	{
-		SolveContext.TraceContext.DebugContext->DrawSolverLine(
-			ERayRopeDebugDrawFlags::MoveCandidates,
-			NodeWindow.CurrentNode.WorldLocation,
-			CandidatePoint,
-			SolveContext.TraceContext.DebugContext->GetSettings().DebugBlockedTraceColor,
-			TEXT("TransitionReject"));
-		SolveContext.TraceContext.DebugContext->RecordSolverEvent(
-			TEXT("MoveValidation"),
-			FString::Printf(
-				TEXT("Node[%d] move point rejected: transition blocked Candidate=%s"),
-				NodeWindow.NodeIndex,
-				*CandidatePoint.ToCompactString()));
+		return FinishValidation(
+			SolveContext,
+			NodeWindow,
+			RAYROPE_MAKE_MOVE_VALIDATION(
+				EMoveDecisionType::None,
+				CandidatePoint,
+				TEXT("Span fan blocked")));
 	}
 
-	return bTransitionClear;
+	return FinishValidation(SolveContext, NodeWindow, Validation);
 }
 
 bool IsMoveImprovementSignificant(
@@ -195,4 +267,6 @@ bool IsMoveImprovementSignificant(
 		NodeWindow.NextNode);
 	return CandidateDistanceSum + SolveContext.MinLengthImprovement < CurrentDistanceSum;
 }
+
+#undef RAYROPE_MAKE_MOVE_VALIDATION
 }

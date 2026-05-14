@@ -44,6 +44,7 @@ FRayRopeMoveSettings FRayRopeComponentSettings::MakeMoveSettings(const URayRopeC
 	MoveSettings.MaxEffectivePointSearchIterations = Component.MaxEffectivePointSearchIterations;
 	MoveSettings.MaxGlobalMoveIterations = Component.MaxGlobalMoveIterations;
 	MoveSettings.MaxGlobalMoveLineSearchSteps = Component.MaxGlobalMoveLineSearchSteps;
+	MoveSettings.MaxGlobalValidationSamples = Component.MaxGlobalValidationSamples;
 	MoveSettings.GlobalMoveDamping = Component.GlobalMoveDamping;
 	return MoveSettings;
 }

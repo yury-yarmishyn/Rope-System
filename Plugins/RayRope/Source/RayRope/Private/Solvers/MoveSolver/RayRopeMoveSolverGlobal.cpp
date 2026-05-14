@@ -2,7 +2,6 @@
 
 #include "Debug/RayRopeDebugConfig.h"
 #include "Nodes/RayRopeNodeSynchronizer.h"
-#include "Topology/RayRopeSegmentTopology.h"
 
 namespace RayRopeMoveSolverPrivate
 {
@@ -65,37 +64,57 @@ void ApplyGlobalMove(
 		Segment.Nodes[State.NodeIndex] = MoveTemp(MovedNode);
 	}
 }
+
+void AddAffectedSpanRanges(
+	TConstArrayView<FRayRopeSpanIndexRange> AffectedSpanRanges,
+	FRayRopeSolveResult& Result)
+{
+	for (const FRayRopeSpanIndexRange& Range : AffectedSpanRanges)
+	{
+		Result.AddAffectedSpanRange(Range.FirstSpanIndex, Range.LastSpanIndex);
+	}
+}
 }
 
-EGlobalMoveSolveStatus TryMoveSegmentGlobal(
+FGlobalMoveResult TryMoveSegmentGlobal(
 	const FMoveSolveContext& SolveContext,
-	FRayRopeSegment& Segment,
-	FRayRopeSolveResult& OutResult)
+	FRayRopeSegment& Segment)
 {
-	OutResult = FRayRopeSolveResult();
+	FGlobalMoveResult Result;
 
 	if (SolveContext.MaxGlobalMoveIterations <= 0 ||
-		Segment.Nodes.Num() < 5 ||
-		FRayRopeSegmentTopology::CountRedirectNodes(Segment) < GMinGlobalMoveRedirects)
+		Segment.Nodes.Num() < 5)
 	{
-		return EGlobalMoveSolveStatus::NotApplicable;
+		Result.Status = EGlobalMoveSolveStatus::NotApplicable;
+		return Result;
 	}
 
-	bool bAppliedAnyMove = false;
 	for (int32 Iteration = 0; Iteration < SolveContext.MaxGlobalMoveIterations; ++Iteration)
 	{
 		TArray<FGlobalMoveNodeState, TInlineAllocator<32>> States;
 		TArray<int32, TInlineAllocator<64>> NodeToStateIndex;
-		BuildGlobalMoveNodeStates(
+		const FGlobalMoveStateBuildResult BuildResult = BuildGlobalMoveNodeStates(
 			SolveContext,
 			Segment,
 			States,
 			NodeToStateIndex);
-		if (States.Num() < GMinGlobalMoveRedirects)
+		Result.bSkippedAnyRedirect |= BuildResult.bSkippedAnyRedirect;
+		if (BuildResult.RedirectCount < GMinGlobalMoveRedirects)
 		{
-			return bAppliedAnyMove
+			Result.Status = Result.PassResult.bAppliedAnyMove
 				? EGlobalMoveSolveStatus::Applied
 				: EGlobalMoveSolveStatus::NotApplicable;
+			return Result;
+		}
+
+		if (BuildResult.StateCount < GMinGlobalMoveRedirects)
+		{
+			Result.Status = Result.PassResult.bAppliedAnyMove
+				? EGlobalMoveSolveStatus::Applied
+				: EGlobalMoveSolveStatus::NotApplicable;
+			Result.PassResult.bNeedsLocalFallback = BuildResult.bSkippedAnyRedirect;
+			Result.PassResult.bFullyHandled = !Result.PassResult.bNeedsLocalFallback;
+			return Result;
 		}
 
 		float MaxAbsDelta = 0.f;
@@ -107,16 +126,23 @@ EGlobalMoveSolveStatus TryMoveSegmentGlobal(
 			MaxAbsDelta);
 		if (StepStatus == EGlobalMoveStepStatus::Converged)
 		{
-			return bAppliedAnyMove
+			Result.Status = Result.PassResult.bAppliedAnyMove
 				? EGlobalMoveSolveStatus::Applied
 				: EGlobalMoveSolveStatus::Converged;
+			Result.PassResult.bNeedsLocalFallback = Result.bSkippedAnyRedirect;
+			Result.PassResult.bFullyHandled = !Result.PassResult.bNeedsLocalFallback;
+			return Result;
 		}
 
 		if (StepStatus == EGlobalMoveStepStatus::Failed)
 		{
-			return bAppliedAnyMove
+			Result.PassResult.bHadFailure = true;
+			Result.PassResult.bNeedsLocalFallback = true;
+			Result.PassResult.bFullyHandled = false;
+			Result.Status = Result.PassResult.bAppliedAnyMove
 				? EGlobalMoveSolveStatus::Applied
-				: EGlobalMoveSolveStatus::NoValidStep;
+				: EGlobalMoveSolveStatus::Failed;
+			return Result;
 		}
 
 		const float CurrentLength = CalculateSegmentLengthAtAlpha(
@@ -129,22 +155,25 @@ EGlobalMoveSolveStatus TryMoveSegmentGlobal(
 			MaxAbsDelta);
 
 		float AcceptedAlpha = 0.f;
-		int32 FirstSpanIndex = INDEX_NONE;
-		int32 LastSpanIndex = INDEX_NONE;
+		FRayRopeAffectedSpanRangeBuffer AcceptedSpanRanges;
 		if (!TryFindAcceptedAlpha(
 				SolveContext,
 				Segment,
 				States,
 				NodeToStateIndex,
 				InitialAlpha,
+				MaxAbsDelta,
 				CurrentLength,
 				AcceptedAlpha,
-				FirstSpanIndex,
-				LastSpanIndex))
+				AcceptedSpanRanges))
 		{
-			return bAppliedAnyMove
+			Result.PassResult.bHadFailure = true;
+			Result.PassResult.bNeedsLocalFallback = true;
+			Result.PassResult.bFullyHandled = false;
+			Result.Status = Result.PassResult.bAppliedAnyMove
 				? EGlobalMoveSolveStatus::Applied
-				: EGlobalMoveSolveStatus::NoValidStep;
+				: EGlobalMoveSolveStatus::Failed;
+			return Result;
 		}
 
 		const FRayRopeSegment ReferenceSegment = Segment;
@@ -161,9 +190,9 @@ EGlobalMoveSolveStatus TryMoveSegmentGlobal(
 			SolveContext.GeometryTolerance,
 			Segment);
 
-		OutResult.MarkNodeLocationsChanged();
-		OutResult.AddAffectedSpanRange(FirstSpanIndex, LastSpanIndex);
-		bAppliedAnyMove = true;
+		Result.PassResult.SolveResult.MarkNodeLocationsChanged();
+		AddAffectedSpanRanges(AcceptedSpanRanges, Result.PassResult.SolveResult);
+		Result.PassResult.bAppliedAnyMove = true;
 
 #if RAYROPE_WITH_DEBUG
 		UE_LOG(
@@ -178,8 +207,11 @@ EGlobalMoveSolveStatus TryMoveSegmentGlobal(
 #endif
 	}
 
-	return bAppliedAnyMove
+	Result.PassResult.bNeedsLocalFallback = Result.bSkippedAnyRedirect;
+	Result.PassResult.bFullyHandled = !Result.PassResult.bNeedsLocalFallback;
+	Result.Status = Result.PassResult.bAppliedAnyMove
 		? EGlobalMoveSolveStatus::Applied
 		: EGlobalMoveSolveStatus::Converged;
+	return Result;
 }
 }

@@ -30,7 +30,12 @@ struct FGlobalMoveSystem
 	TArray<float, TInlineAllocator<32>> Delta;
 };
 
-using FGlobalMoveLocationBuffer = TArray<FVector, TInlineAllocator<64>>;
+struct FGlobalMoveStateBuildResult
+{
+	int32 RedirectCount = 0;
+	int32 StateCount = 0;
+	bool bSkippedAnyRedirect = false;
+};
 
 enum class EGlobalMoveStepStatus : uint8
 {
@@ -45,7 +50,7 @@ bool IsValidViewIndex(TConstArrayView<ElementType> View, int32 Index)
 	return Index >= 0 && Index < View.Num();
 }
 
-void BuildGlobalMoveNodeStates(
+FGlobalMoveStateBuildResult BuildGlobalMoveNodeStates(
 	const FMoveSolveContext& SolveContext,
 	const FRayRopeSegment& Segment,
 	TArray<FGlobalMoveNodeState, TInlineAllocator<32>>& OutStates,
@@ -57,15 +62,6 @@ FVector GetNodeLocationAtAlpha(
 	TConstArrayView<int32> NodeToStateIndex,
 	int32 NodeIndex,
 	float Alpha);
-
-void BuildNodeLocationsAtAlpha(
-	const FRayRopeSegment& Segment,
-	TConstArrayView<FGlobalMoveNodeState> States,
-	TConstArrayView<int32> NodeToStateIndex,
-	float Alpha,
-	FGlobalMoveLocationBuffer& OutNodeLocations);
-
-float CalculateSegmentLength(TConstArrayView<FVector> NodeLocations);
 
 float CalculateSegmentLengthAtAlpha(
 	const FRayRopeSegment& Segment,
@@ -96,16 +92,12 @@ float CalculateInitialLineSearchAlpha(
 	const FRayRopeMoveSettings& MoveSettings,
 	float MaxAbsDelta);
 
-float CalculateMaxMoveDistanceAtAlpha(
-	TConstArrayView<FGlobalMoveNodeState> States,
-	float Alpha);
-
-bool TryGetAffectedSpanRange(
+bool BuildAffectedSpanRanges(
 	TConstArrayView<FGlobalMoveNodeState> States,
 	float Alpha,
 	float MoveThreshold,
-	int32& OutFirstSpanIndex,
-	int32& OutLastSpanIndex);
+	int32 MaxSpanIndex,
+	FRayRopeAffectedSpanRangeBuffer& OutRanges);
 
 /**
  * Validates final and sampled intermediate locations for a shared-alpha batch move.
@@ -115,8 +107,7 @@ bool IsBatchMoveClearAtAlpha(
 	const FRayRopeSegment& Segment,
 	TConstArrayView<FGlobalMoveNodeState> States,
 	TConstArrayView<int32> NodeToStateIndex,
-	int32 FirstSpanIndex,
-	int32 LastSpanIndex,
+	TConstArrayView<FRayRopeSpanIndexRange> AffectedSpanRanges,
 	float Alpha);
 
 /**
@@ -128,8 +119,8 @@ bool TryFindAcceptedAlpha(
 	TConstArrayView<FGlobalMoveNodeState> States,
 	TConstArrayView<int32> NodeToStateIndex,
 	float InitialAlpha,
+	float MaxAbsDelta,
 	float CurrentLength,
 	float& OutAcceptedAlpha,
-	int32& OutFirstSpanIndex,
-	int32& OutLastSpanIndex);
+	FRayRopeAffectedSpanRangeBuffer& OutAffectedSpanRanges);
 }

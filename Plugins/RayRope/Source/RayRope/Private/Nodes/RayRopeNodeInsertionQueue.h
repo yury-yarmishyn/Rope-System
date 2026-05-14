@@ -45,15 +45,13 @@ struct FRayRopeNodeInsertionQueue
 		FRayRopeBuiltNodeBuffer& Nodes,
 		FRayRopePendingNodeInsertionBuffer& PendingInsertions);
 
-	static bool TryGetInsertionBounds(
-		const FRayRopePendingNodeInsertionBuffer& PendingInsertions,
-		int32& OutFirstInsertIndex,
-		int32& OutLastInsertIndex);
+	static void SortPendingInsertions(FRayRopePendingNodeInsertionBuffer& PendingInsertions);
 
 	/**
 	 * Applies queued insertions in one rebuilt node array and clears the queue.
 	 */
 	static int32 ApplyPendingInsertions(
 		FRayRopeSegment& Segment,
-		FRayRopePendingNodeInsertionBuffer& PendingInsertions);
+		FRayRopePendingNodeInsertionBuffer& PendingInsertions,
+		bool bAlreadySorted = false);
 };

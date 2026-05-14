@@ -1,7 +1,11 @@
 #include "RayRopeMoveSolverInternal.h"
 
-#include "Debug/RayRopeDebugContext.h"
+#include "Debug/RayRopeDebugConfig.h"
 #include "Geometry/RayRopeSurfaceGeometry.h"
+
+#if RAYROPE_WITH_DEBUG
+#include "Debug/RayRopeDebugContext.h"
+#endif
 
 namespace RayRopeMoveSolverPrivate
 {
@@ -97,6 +101,7 @@ bool TryFindRailDirectionSurfaceHits(
 		NodeWindow.CurrentNode.WorldLocation.ContainsNaN() ||
 		NodeWindow.NextNode.WorldLocation.ContainsNaN())
 	{
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -105,6 +110,7 @@ bool TryFindRailDirectionSurfaceHits(
 					TEXT("Node[%d] rejected: invalid world or NaN node"),
 					NodeWindow.NodeIndex));
 		}
+#endif
 		return false;
 	}
 
@@ -115,6 +121,7 @@ bool TryFindRailDirectionSurfaceHits(
 			NodeWindow.CurrentNode.WorldLocation,
 			NodeWindow.NextNode.WorldLocation) <= SolveContext.MinNodeSeparationSquared)
 	{
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -123,6 +130,7 @@ bool TryFindRailDirectionSurfaceHits(
 					TEXT("Node[%d] rejected: below min node separation"),
 					NodeWindow.NodeIndex));
 		}
+#endif
 		return false;
 	}
 
@@ -144,8 +152,7 @@ bool TryFindRailDirectionSurfaceHits(
 		&NodeWindow.PrevNode,
 		&NodeWindow.NextNode);
 
-	const int32 MaxSurfaceHitSearchIterations =
-		FMath::Max(1, SolveContext.MaxEffectivePointSearchIterations);
+	const int32 MaxSurfaceHitSearchIterations = SolveContext.MaxRailSurfaceSearchIterations;
 	for (int32 Iteration = 0; Iteration < MaxSurfaceHitSearchIterations; ++Iteration)
 	{
 		if (SearchBounds.IsResolved(SolveContext.GeometryToleranceSquared))
@@ -178,6 +185,7 @@ bool TryFindRailDirectionSurfaceHits(
 
 	if (!LastForwardSurfaceHit.bBlockingHit)
 	{
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -186,6 +194,7 @@ bool TryFindRailDirectionSurfaceHits(
 					TEXT("Node[%d] rejected: no forward surface hit"),
 					NodeWindow.NodeIndex));
 		}
+#endif
 		return false;
 	}
 
@@ -197,6 +206,7 @@ bool TryFindRailDirectionSurfaceHits(
 		LastBlockedTraceStart,
 		ReverseSurfaceHit))
 	{
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -205,6 +215,7 @@ bool TryFindRailDirectionSurfaceHits(
 					TEXT("Node[%d] rejected: no reverse surface hit"),
 					NodeWindow.NodeIndex));
 		}
+#endif
 		return false;
 	}
 
@@ -224,6 +235,7 @@ bool TryBuildRailFromSurfaceHits(
 
 	if (!FirstSurfaceHit.bBlockingHit || !SecondSurfaceHit.bBlockingHit)
 	{
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -232,6 +244,7 @@ bool TryBuildRailFromSurfaceHits(
 					TEXT("Node[%d] rejected: missing blocking hit pair"),
 					NodeWindow.NodeIndex));
 		}
+#endif
 		return false;
 	}
 
@@ -239,6 +252,7 @@ bool TryBuildRailFromSurfaceHits(
 	const FVector SecondNormal = SecondSurfaceHit.ImpactNormal.GetSafeNormal();
 	if (FirstNormal.IsNearlyZero() || SecondNormal.IsNearlyZero())
 	{
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -247,6 +261,7 @@ bool TryBuildRailFromSurfaceHits(
 					TEXT("Node[%d] rejected: invalid surface normal"),
 					NodeWindow.NodeIndex));
 		}
+#endif
 		return false;
 	}
 
@@ -274,6 +289,7 @@ bool TryBuildRailFromSurfaceHits(
 
 		if (RailDirection.SizeSquared() <= KINDA_SMALL_NUMBER)
 		{
+#if RAYROPE_WITH_DEBUG
 			if (SolveContext.TraceContext.DebugContext != nullptr)
 			{
 				SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -282,6 +298,7 @@ bool TryBuildRailFromSurfaceHits(
 						TEXT("Node[%d] rejected: parallel surfaces did not produce fallback rail"),
 						NodeWindow.NodeIndex));
 			}
+#endif
 			return false;
 		}
 	}
@@ -289,6 +306,7 @@ bool TryBuildRailFromSurfaceHits(
 	const FVector RailDirectionNormal = RailDirection.GetSafeNormal();
 	if (RailDirectionNormal.IsNearlyZero())
 	{
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -297,6 +315,7 @@ bool TryBuildRailFromSurfaceHits(
 					TEXT("Node[%d] rejected: zero rail direction"),
 					NodeWindow.NodeIndex));
 		}
+#endif
 		return false;
 	}
 
@@ -313,6 +332,7 @@ bool TryBuildRailFromSurfaceHits(
 	OutRail.Direction = RailDirectionNormal;
 	if (OutRail.Origin.ContainsNaN())
 	{
+#if RAYROPE_WITH_DEBUG
 		if (SolveContext.TraceContext.DebugContext != nullptr)
 		{
 			SolveContext.TraceContext.DebugContext->RecordSolverEvent(
@@ -321,9 +341,11 @@ bool TryBuildRailFromSurfaceHits(
 					TEXT("Node[%d] rejected: rail origin is NaN"),
 					NodeWindow.NodeIndex));
 		}
+#endif
 		return false;
 	}
 
+#if RAYROPE_WITH_DEBUG
 	if (SolveContext.TraceContext.DebugContext != nullptr)
 	{
 		SolveContext.TraceContext.DebugContext->DrawSolverRail(
@@ -337,9 +359,10 @@ bool TryBuildRailFromSurfaceHits(
 			FString::Printf(
 				TEXT("Node[%d] rail Origin=%s Direction=%s"),
 				NodeWindow.NodeIndex,
-				*OutRail.Origin.ToCompactString(),
-				*OutRail.Direction.ToCompactString()));
+			*OutRail.Origin.ToCompactString(),
+			*OutRail.Direction.ToCompactString()));
 	}
+#endif
 
 	return true;
 }
